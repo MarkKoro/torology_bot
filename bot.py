@@ -12,7 +12,7 @@ from telegram import (
 )
 from telegram.constants import ParseMode
 from telegram.helpers import escape_markdown
-from telegram.error import BadRequest, NetworkError
+from telegram.error import BadRequest, NetworkError, TimedOut, RetryAfter
 from telegram.request import HTTPXRequest
 from telegram.ext import (
     Application,
@@ -94,16 +94,102 @@ REMINDER_TXT2 = (
     "используя меня. Если понадобятся новые данные, пришли фото."
 )
 
-PACKS_RUB = {2: 100_00, 5: 200_00, 10: 389_00}
-# Стоимость пакетов в звёздах
-PACKS_STARS = {2: 55, 5: 110, 10: 220}
+# Цены пакетов (в копейках) с учётом повышенного тарифа
+PACKS_RUB = {2: 150_00, 5: 300_00, 10: 584_00}
+# Стоимость пакетов в звёздах с округлением
+PACKS_STARS = {2: 83, 5: 165, 10: 330}
 BONUS_REF = 2
 REMIND1_SEC = 24 * 3600
 REMIND2_SEC = 72 * 3600
 
-with open(Path(__file__).with_name("cards.json"), encoding="utf-8") as f:
-    _names = json.load(f)["tarot_cards"]
-ALL_CARDS = [{"id": f"c{i:02d}", "name": n} for i, n in enumerate(_names)]
+
+# ── Файлы карт ───────────────────────────────────────
+ASSETS_DIR = Path(__file__).resolve().parent
+CARDS_DIR = ASSETS_DIR / "taro_cards"
+BACK_PATH = ASSETS_DIR / "Card_back.png"
+CARDS_JSON = ASSETS_DIR / "cards.json"
+
+NUM_MAP = {
+    1: "Туз",
+    2: "Двойка",
+    3: "Тройка",
+    4: "Четвёрка",
+    5: "Пятёрка",
+    6: "Шестёрка",
+    7: "Семёрка",
+    8: "Восьмёрка",
+    9: "Девятка",
+    10: "Десятка",
+    11: "Паж",
+    12: "Рыцарь",
+    13: "Королева",
+    14: "Король",
+}
+
+SUIT_MAP = {
+    "Wands": "Жезлов",
+    "Cups": "Кубков",
+    "Swords": "Мечей",
+    "Pentacles": "Пентаклей",
+}
+
+MAJOR_MAP = {
+    "The Fool": "Шут",
+    "The Magician": "Маг",
+    "The High Priestess": "Верховная Жрица",
+    "The Empress": "Императрица",
+    "The Emperor": "Император",
+    "The Hierophant": "Иерофант",
+    "The Lovers": "Влюблённые",
+    "The Chariot": "Колесница",
+    "Strength": "Сила",
+    "The Hermit": "Отшельник",
+    "Wheel of Fortune": "Колесо Фортуны",
+    "Justice": "Справедливость",
+    "The Hanged Man": "Повешенный",
+    "Death": "Смерть",
+    "Temperance": "Умеренность",
+    "The Devil": "Дьявол",
+    "The Tower": "Башня",
+    "The Star": "Звезда",
+    "The Moon": "Луна",
+    "The Sun": "Солнце",
+    "Judgement": "Суд",
+    "The World": "Мир",
+}
+
+def _name_from_filename(fn: Path) -> tuple[str, str]:
+    stem = fn.stem
+    if re.match(r"^\d+", stem):
+        num, suit = stem.split(" ", 1)
+        num = int(num)
+        ru_num = NUM_MAP.get(num, str(num))
+        ru_suit = SUIT_MAP.get(suit, suit)
+        return stem.lower().replace(" ", "_"), f"{ru_num} {ru_suit}"
+    return stem.lower().replace(" ", "_"), MAJOR_MAP.get(stem, stem)
+
+def _load_cards_json():
+    if CARDS_JSON.exists():
+        with CARDS_JSON.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    return {"back_file_id": None, "cards": []}
+
+def _save_cards_json(data: dict):
+    tmp = CARDS_JSON.with_suffix(".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    tmp.replace(CARDS_JSON)
+
+def admin_only(func):
+    async def wrapper(update, ctx, *args, **kwargs):
+        uid = update.effective_user.id
+        if uid not in ADMIN_IDS:
+            return
+        return await func(update, ctx, *args, **kwargs)
+    return wrapper
+
+meta = _load_cards_json()
+ALL_CARDS = [{"id": c["id"], "name": c["name"]} for c in meta.get("cards", [])]
 
 DATE_RE = re.compile(r"(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})")
 
@@ -123,7 +209,8 @@ def new_session_deck(uid: int, kind: str) -> list[dict]:
     seed_text = f"{uid}:{dt.date.today().isoformat()}:{kind}"
     seed = int(hashlib.sha256(seed_text.encode()).hexdigest(), 16) % (10**8)
     rnd = random.Random(seed)
-    deck = ALL_CARDS.copy()
+    meta = _load_cards_json()
+    deck = [{"id": c["id"], "name": c["name"]} for c in meta.get("cards", [])]
     rnd.shuffle(deck)
     return deck
 
@@ -197,16 +284,16 @@ def kb_pay():
     return Mk(
         [
             [
-                Btn("2 анализа – 100 ₽", callback_data="buy_2_card"),
-                Btn("2 анализа – 55 ⭐", callback_data="buy_2_star"),
+                Btn("2 анализа – 150 ₽", callback_data="buy_2_card"),
+                Btn("2 анализа – 83 ⭐", callback_data="buy_2_star"),
             ],
             [
-                Btn("5 анализов – 200 ₽", callback_data="buy_5_card"),
-                Btn("5 анализов – 110 ⭐", callback_data="buy_5_star"),
+                Btn("5 анализов – 300 ₽", callback_data="buy_5_card"),
+                Btn("5 анализов – 165 ⭐", callback_data="buy_5_star"),
             ],
             [
-                Btn("10 анализов – 389 ₽", callback_data="buy_10_card"),
-                Btn("10 анализов – 220 ⭐", callback_data="buy_10_star"),
+                Btn("10 анализов – 584 ₽", callback_data="buy_10_card"),
+                Btn("10 анализов – 330 ⭐", callback_data="buy_10_star"),
             ],
             [Btn("← Назад", callback_data="back")],
         ]
@@ -377,13 +464,34 @@ async def router(update: Update, ctx):
         ctx.user_data["picked"] = []
         ctx.user_data["step"] = 0
         options = pick_options(ctx.user_data["deck"], set(), {1:6,3:5,5:4}[spread])
-        await show("Выбери карту:", update, ctx, kb_cards(options, 0), menu=False)
+        meta = _load_cards_json()
+        back_id = meta.get("back_file_id")
+        if back_id:
+            await ctx.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=back_id,
+                caption="Выбери карту:",
+                reply_markup=kb_cards(options, 0),
+            )
+        else:
+            await show("Выбери карту:", update, ctx, kb_cards(options, 0), menu=False)
     elif data.startswith("choose:"):
         _, cid, step = data.split(":")
         step = int(step)
         ctx.user_data["picked"].append(cid)
         spread = ctx.user_data["spread"]
         deck = ctx.user_data["deck"]
+        meta = _load_cards_json()
+        card = next((c for c in meta.get("cards", []) if c["id"] == cid), None)
+        if card and card.get("file_id"):
+            await ctx.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=card["file_id"],
+                caption=f"Ты выбрал: {card['name']}",
+            )
+        else:
+            await update.effective_chat.send_message(f"Ты выбрал: {card['name'] if card else cid}")
+        await q.message.delete()
         if step + 1 >= spread:
             cards = [next(c for c in deck if c["id"] == x) for x in ctx.user_data["picked"]]
             dob = ctx.user_data.get("dob1")
@@ -392,13 +500,23 @@ async def router(update: Update, ctx):
             report = await loop.run_in_executor(None, build_tarot, cards, spread, dob, gender)
             dec_credit(uid, ADMIN_IDS)
             ctx.user_data.clear()
-            await q.message.delete()
             await update.effective_chat.send_message(report + FOOTER_TAROT, parse_mode="Markdown")
             await show_main(update, ctx, uid)
         else:
             ctx.user_data["step"] = step + 1
             options = pick_options(deck, set(ctx.user_data["picked"]), {1:6,3:5,5:4}[spread])
-            await q.message.edit_text("Выбери карту:", reply_markup=kb_cards(options, ctx.user_data["step"]))
+            back_id = meta.get("back_file_id")
+            if back_id:
+                await ctx.bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=back_id,
+                    caption="Выбери карту:",
+                    reply_markup=kb_cards(options, ctx.user_data["step"]),
+                )
+            else:
+                await update.effective_chat.send_message(
+                    "Выбери карту:", reply_markup=kb_cards(options, ctx.user_data["step"])
+                )
     elif data.startswith("gender_"):
         ctx.user_data["gender"] = "мужчина" if data.endswith("m") else "женщина"
         if ctx.user_data.get("mode") == "num_gender":
@@ -709,6 +827,67 @@ async def stats_referrals(update: Update, ctx):
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 
+@admin_only
+async def cache_back(update: Update, ctx):
+    """Залить 'рубашку' и сохранить её file_id"""
+    data = _load_cards_json()
+    if not BACK_PATH.exists():
+        await update.message.reply_text(f"Не найден файл {BACK_PATH}")
+        return
+    with BACK_PATH.open("rb") as f:
+        m = await ctx.bot.send_photo(chat_id=update.effective_chat.id, photo=f, caption="Рубашка")
+    data["back_file_id"] = m.photo[-1].file_id
+    _save_cards_json(data)
+    await update.message.reply_text("✅ Рубашка сохранена.")
+
+
+@admin_only
+async def cache_cards(update: Update, ctx):
+    """Закачать все карты админу, собрать file_id"""
+    if not CARDS_DIR.exists():
+        await update.message.reply_text(f"Не найдена папка {CARDS_DIR}")
+        return
+
+    files = sorted([p for p in CARDS_DIR.iterdir() if p.suffix.lower() in {".jpg", ".jpeg", ".png"}])
+    if not files:
+        await update.message.reply_text("В папке нет изображений карт.")
+        return
+
+    data = _load_cards_json()
+    known = {c["id"] for c in data.get("cards", [])}
+    added = 0
+
+    await update.message.reply_text(
+        f"Начинаю кэшировать {len(files)} файлов. Пожалуйста, не нажимай ничего."
+    )
+
+    for i, path in enumerate(files, 1):
+        cid, name = _name_from_filename(path)
+        if cid in known:
+            continue
+        try:
+            with path.open("rb") as f:
+                m = await ctx.bot.send_photo(chat_id=update.effective_chat.id, photo=f, caption=name)
+            file_id = m.photo[-1].file_id
+            data.setdefault("cards", []).append({"id": cid, "name": name, "file_id": file_id})
+            added += 1
+            if added % 5 == 0:
+                _save_cards_json(data)
+            await asyncio.sleep(0.6)
+        except RetryAfter as e:
+            await asyncio.sleep(int(e.retry_after) + 1)
+            continue
+        except TimedOut:
+            await asyncio.sleep(1.0)
+            continue
+
+    _save_cards_json(data)
+    total = len(data.get('cards', []))
+    await update.message.reply_text(
+        f"✅ Готово. Добавлено {added} карт. Всего в cards.json: {total}."
+    )
+
+
 # ── Error-лог ───────────────────────────────────────
 async def err(update: object, ctx):
     err = ctx.error
@@ -745,6 +924,8 @@ def main():
             CommandHandler("alias", set_alias_cmd),
             CommandHandler("stats", stats),
             CommandHandler("stats_referrals", stats_referrals),
+            CommandHandler("cache_back", cache_back),
+            CommandHandler("cache_cards", cache_cards),
             CallbackQueryHandler(router),
             PreCheckoutQueryHandler(pre_checkout),
             MessageHandler(filters.SUCCESSFUL_PAYMENT, paid),
