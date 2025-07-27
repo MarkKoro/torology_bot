@@ -24,6 +24,7 @@ from telegram.ext import (
     PreCheckoutQueryHandler,
     ChatMemberHandler,
     filters,
+    AIORateLimiter,
 )
 
 from utils.llm import build_tarot, build_numerology
@@ -78,15 +79,18 @@ GREETING = (
     "🔮 Толкуем выпавшие арканы и даём совет.\n"
     "📈 Помогаем разобраться в ситуации.\n"
     "✨ Показываем возможные пути развития.\n"
-    "_Первый анализ бесплатен._ Пригласи друга по ссылке и получи +2 анализа."
+    "_Первый анализ бесплатен._ Пригласи друга и получи +2 анализа."
 )
 HOW_IT_WORKS = (
     "*Как это работает?*\n"
-    "1️⃣ Выбирай нумерологию или Таро.\n"
-    "2️⃣ Вводи данные или выбирай карты.\n"
-    "3️⃣ Мы быстро анализируем информацию.\n"
-    "4️⃣ Получай персональный результат.\n"
-    "🔥 Пригласи друга → +2 анализа."
+    "🔢 Нумерология раскрывает потенциал по дате рождения.\n"
+    "✨ Цифры подсказывают сильные и слабые стороны.\n"
+    "🚀 Мы анализируем сочетания и даём прогноз.\n"
+    "💡 Получаешь практичные рекомендации.\n"
+    "🃏 Таро отражает текущие энергии выбранных карт.\n"
+    "⚡ Арканы показывают скрытые влияния и пути решения.\n"
+    "🎯 Мы читаем расклад и подсказываем действия.\n"
+    "🏁 Итог помогает выбрать верное направление."
 )
 FOOTER = (
     "\n\n"
@@ -218,7 +222,11 @@ def new_session_deck(uid: int, kind: str) -> list[dict]:
     seed = int(hashlib.sha256(seed_text.encode()).hexdigest(), 16) % (10**8)
     rnd = random.Random(seed)
     meta = _load_cards_json()
-    deck = [{"id": c["id"], "name": c["name"]} for c in meta.get("cards", [])]
+    deck = [
+        {"id": c["id"], "name": c["name"]}
+        for c in meta.get("cards", [])
+        if c.get("msg_id")
+    ]
     rnd.shuffle(deck)
     return deck
 
@@ -441,6 +449,11 @@ async def router(update: Update, ctx):
     q = update.callback_query
     await q.answer()
     uid, data = update.effective_user.id, q.data
+    now = asyncio.get_running_loop().time()
+    last = ctx.user_data.get("last_cb")
+    if last and (q.id == last[0] or (data == last[1] and now - last[2] < 0.3)):
+        return
+    ctx.user_data["last_cb"] = (q.id, data, now)
     log_event(data, uid)
     credits = get_credits(uid, ADMIN_IDS)
 
@@ -470,7 +483,16 @@ async def router(update: Update, ctx):
             return
         ctx.user_data.clear()
         ctx.user_data["mode"] = "tarot_spread"
-        await show("Выбери расклад:", update, ctx, kb_spread())
+        await show(
+            "Выбери расклад:\n"
+            "🃏 Карта дня/совет → одна карта.\n"
+            "🕰 Прошлое → первая, ⚡ Настоящее → вторая, 🚀 Будущее → третья.\n"
+            "🎯 Ситуация → первая, ⚠️ Узкое место → вторая, 🧭 Совет → третья, "
+            "🔋 Ресурс → четвёртая, 🏁 Итог → пятая.",
+            update,
+            ctx,
+            kb_spread(),
+        )
     elif data.startswith("spread_"):
         spread = int(data.split("_", 1)[1])
         ctx.user_data["mode"] = "tarot_pick"
@@ -504,7 +526,10 @@ async def router(update: Update, ctx):
         deck = ctx.user_data["deck"]
         meta = _load_cards_json()
         cache_id = meta.get("cache_chat_id")
-        card = next((c for c in meta.get("cards", []) if c["id"] == cid), None)
+        card = next(
+            (c for c in meta.get("cards", []) if c["id"] == cid and c.get("msg_id")),
+            None,
+        )
         try:
             await q.message.delete()
         except BadRequest:
@@ -593,8 +618,7 @@ async def router(update: Update, ctx):
             r"Предложи этого бота друзьям и получи дополнительные анализы.\n\n"
             f"🔗 Твоя ссылка: `{link}`\n\n"
             f"За каждого нового пользователя — *+{BONUS_REF} анализа*. "
-            "Перешедшие по именной ссылке получают 2 анализа.\n"
-            "Используй `/alias <имя>` для красивой ссылки.",
+            "Перешедшие по именной ссылке получают 2 анализа.",
             update,
             ctx,
             kb_back(),
@@ -976,6 +1000,45 @@ async def cache_cards(update: Update, ctx):
     )
 
 
+@admin_only
+async def cards_cleanup(update: Update, ctx):
+    data = _load_cards_json()
+    cards = data.get("cards", [])
+    cards = [c for c in cards if c.get("msg_id")]
+    seen = set()
+    cleaned = []
+    for c in cards:
+        key = c["name"]
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(c)
+    data["cards"] = cleaned
+    _save_cards_json(data)
+    await update.message.reply_text(f"🧹 Оставлено {len(cleaned)} карт с msg_id.")
+
+
+@admin_only
+async def cards_check(update, ctx):
+    data = _load_cards_json()
+    cache_id = data.get("cache_chat_id")
+    bad = []
+    for c in data.get("cards", []):
+        try:
+            await ctx.bot.copy_message(
+                chat_id=update.effective_chat.id,
+                from_chat_id=cache_id,
+                message_id=c["msg_id"],
+            )
+            await asyncio.sleep(0.15)
+        except Exception:
+            bad.append(c["name"])
+    if bad:
+        await update.message.reply_text("❌ Проблемы с:\n" + "\n".join(bad))
+    else:
+        await update.message.reply_text("✅ Все карты копируются.")
+
+
 # ── Error-лог ───────────────────────────────────────
 async def err(update: object, ctx):
     err = ctx.error
@@ -995,11 +1058,19 @@ async def err(update: object, ctx):
 
 # ── main ────────────────────────────────────────────
 def main():
-    req = HTTPXRequest(connect_timeout=10, read_timeout=20)
+    req = HTTPXRequest(
+        connect_timeout=10,
+        read_timeout=20,
+        write_timeout=20,
+        connection_pool_size=1024,
+        pool_timeout=10,
+    )
     app = (
         Application.builder()
         .token(BOT_TOKEN)
         .request(req)
+        .rate_limiter(AIORateLimiter())
+        .concurrent_updates(64)
         .job_queue(JobQueue())
         .build()
     )
@@ -1014,6 +1085,8 @@ def main():
             CommandHandler("stats_referrals", stats_referrals),
             CommandHandler("cache_back", cache_back),
             CommandHandler("cache_cards", cache_cards),
+            CommandHandler("cards_cleanup", cards_cleanup),
+            CommandHandler("cards_check", cards_check),
             CallbackQueryHandler(router),
             PreCheckoutQueryHandler(pre_checkout),
             MessageHandler(filters.SUCCESSFUL_PAYMENT, paid),
