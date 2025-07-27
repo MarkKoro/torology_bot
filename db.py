@@ -276,3 +276,19 @@ def referral_payment_stats() -> list[tuple[int, str, int, int]]:
         ).fetchall()
     return [(r[0], r[1], r[2], r[3]) for r in rows]
 
+
+def payment_stats() -> list[tuple[str, int, int]]:
+    """Общая статистика оплат (метод, пакет, количество)."""
+    with _LOCK:
+        rows = DB.execute(
+            "SELECT method, qty, COUNT(*) FROM payments GROUP BY method, qty"
+        ).fetchall()
+    return [(r[0], r[1], r[2]) for r in rows]
+
+
+def unique_payers() -> int:
+    """Количество пользователей, совершивших хоть одну оплату."""
+    with _LOCK:
+        row = DB.execute("SELECT COUNT(DISTINCT uid) FROM payments").fetchone()
+    return row[0] if row else 0
+

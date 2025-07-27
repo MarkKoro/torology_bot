@@ -48,6 +48,8 @@ from db import (
     aliases_for,
     log_payment,
     referral_payment_stats,
+    payment_stats,
+    unique_payers,
 )
 
 # ── Логи ─────────────────────────────────────────────
@@ -60,27 +62,36 @@ log = logging.getLogger(__name__)
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 YK_TOKEN = os.getenv("YK_TOKEN")
+CACHE_CHAT_ID = int(os.getenv("CACHE_CHAT_ID", "0")) or None
 SUPPORT = os.getenv("SUPPORT", "@support")
 ADMIN_IDS = {int(x) for x in os.getenv("ADMINS", "").split(",") if x}
 
 # ── Текст ────────────────────────────────────────────
 GREETING = (
-    "👋 *Добро пожаловать в Лицемер.*\n"
-    "1. Мы проводим нумерологический анализ по дате рождения.\n"
-    "2. Делаем таро-прогноз по выбранным картам.\n"
-    "_Первый анализ бесплатен._ Пригласи друга по реферальной ссылке и получи +2 анализа."
+    "👋 *Добро пожаловать в Tara Nume Bot*\n"
+    "🔢 Проводим нумерологический анализ.\n"
+    "🗓️ Укажи дату рождения и узнай скрытый потенциал.\n"
+    "💡 Расскажем о сильных и слабых сторонах.\n"
+    "🌟 Поделимся прогнозом на будущее.\n"
+    "│\n"
+    "🃏 Делаем таро-прогноз по выбранным картам.\n"
+    "🔮 Толкуем выпавшие арканы и даём совет.\n"
+    "📈 Помогаем разобраться в ситуации.\n"
+    "✨ Показываем возможные пути развития.\n"
+    "_Первый анализ бесплатен._ Пригласи друга по ссылке и получи +2 анализа."
 )
 HOW_IT_WORKS = (
     "*Как это работает?*\n"
-    "📊 Нумерология: ты вводишь дату рождения и получаешь подробный анализ.\n"
-    "🃏 Тарологический прогноз: выбираешь карты из колоды и узнаёшь их значение.\n"
+    "1️⃣ Выбирай нумерологию или Таро.\n"
+    "2️⃣ Вводи данные или выбирай карты.\n"
+    "3️⃣ Мы быстро анализируем информацию.\n"
+    "4️⃣ Получай персональный результат.\n"
     "🔥 Пригласи друга → +2 анализа."
 )
 FOOTER = (
     "\n\n"
     "Голова выше, плечи назад. Только ты кузнец своего счастья, "
-    "у тебя всё получится. Я в тебя верю.\n"
-    "🗝️ Ты получил *чит-код действий*. Действуй!"
+    "у тебя всё получится. Я в тебя верю."
 )
 
 FOOTER_TAROT = (
@@ -88,11 +99,8 @@ FOOTER_TAROT = (
     "Голова выше, плечи назад. Только ты кузнец своего счастья, "
     "у тебя всё получится. Я в тебя верю."
 )
-REMINDER_TXT1 = "Привет! Получилось ли достичь цели?"
-REMINDER_TXT2 = (
-    "Я уверен, у тебя всё получилось. Надеюсь, ты ещё не решил захватить мир, "
-    "используя меня. Если понадобятся новые данные, пришли фото."
-)
+REMINDER_TXT1 = "Привет, ну как сработал ли твой прогноз?"
+REMINDER_TXT2 = "Ну что, проверим, что ждёт тебя сегодня?"
 
 # Цены пакетов (в копейках) с учётом повышенного тарифа
 PACKS_RUB = {2: 150_00, 5: 300_00, 10: 584_00}
@@ -172,7 +180,7 @@ def _load_cards_json():
     if CARDS_JSON.exists():
         with CARDS_JSON.open("r", encoding="utf-8") as f:
             return json.load(f)
-    return {"back_file_id": None, "cards": []}
+    return {"cache_chat_id": None, "back_msg_id": None, "cards": []}
 
 def _save_cards_json(data: dict):
     tmp = CARDS_JSON.with_suffix(".tmp")
@@ -278,6 +286,10 @@ def kb_main(uid: int, credits: int) -> Mk:
 
 def kb_back():
     return Mk([[Btn("← Назад", callback_data="back")]])
+
+
+def kb_home():
+    return Mk([[Btn("↩️ В меню", callback_data="back")]])
 
 
 def kb_pay():
@@ -395,9 +407,11 @@ async def start(update: Update, ctx):
 
     first_visit = is_new_user(uid)
 
+    alias_used = False
     if args:
         ref = args[0]
         parent = int(ref) if ref.isdigit() else alias_owner(ref)
+        alias_used = not ref.isdigit() and parent
         if parent and set_referral(uid, parent):
             add_credits(parent, BONUS_REF)
             try:
@@ -415,9 +429,9 @@ async def start(update: Update, ctx):
 
     log_event("start", uid)
 
-    # 1-й визит → автоматически +1
+    # 1-й визит → автоматически +1, по реферальному имени +2
     if first_visit:
-        add_credits(uid, 1)
+        add_credits(uid, 2 if alias_used else 1)
 
     await show_main(update, ctx, uid)
 
@@ -442,7 +456,8 @@ async def router(update: Update, ctx):
             return
         ctx.user_data.clear()
         ctx.user_data["mode"] = "num_dob1"
-        await show("Введите дату рождения (ДД.ММ.ГГГГ)", update, ctx, kb_back(), menu=False)
+        m = await show("Введите дату рождения (ДД.ММ.ГГГГ)", update, ctx, kb_back(), menu=False)
+        ctx.user_data["prompt_id"] = m.message_id
     elif data == "tarot":
         if credits <= 0:
             await show(
@@ -463,13 +478,19 @@ async def router(update: Update, ctx):
         ctx.user_data["deck"] = new_session_deck(uid, str(spread))
         ctx.user_data["picked"] = []
         ctx.user_data["step"] = 0
+        try:
+            await q.message.delete()
+        except BadRequest:
+            pass
         options = pick_options(ctx.user_data["deck"], set(), {1:6,3:5,5:4}[spread])
         meta = _load_cards_json()
-        back_id = meta.get("back_file_id")
-        if back_id:
-            await ctx.bot.send_photo(
+        cache_id = meta.get("cache_chat_id")
+        back_msg = meta.get("back_msg_id")
+        if cache_id and back_msg:
+            await ctx.bot.copy_message(
                 chat_id=update.effective_chat.id,
-                photo=back_id,
+                from_chat_id=cache_id,
+                message_id=back_msg,
                 caption="Выбери карту:",
                 reply_markup=kb_cards(options, 0),
             )
@@ -482,17 +503,32 @@ async def router(update: Update, ctx):
         spread = ctx.user_data["spread"]
         deck = ctx.user_data["deck"]
         meta = _load_cards_json()
+        cache_id = meta.get("cache_chat_id")
         card = next((c for c in meta.get("cards", []) if c["id"] == cid), None)
-        if card and card.get("file_id"):
-            await ctx.bot.send_photo(
+        try:
+            await q.message.delete()
+        except BadRequest:
+            pass
+        if step + 1 >= spread:
+            reply_markup = None
+        else:
+            options = pick_options(deck, set(ctx.user_data["picked"]), {1:6,3:5,5:4}[spread])
+            reply_markup = kb_cards(options, step + 1)
+        if cache_id and card and card.get("msg_id"):
+            await ctx.bot.copy_message(
                 chat_id=update.effective_chat.id,
-                photo=card["file_id"],
+                from_chat_id=cache_id,
+                message_id=card["msg_id"],
                 caption=f"Ты выбрал: {card['name']}",
+                reply_markup=reply_markup,
             )
         else:
-            await update.effective_chat.send_message(f"Ты выбрал: {card['name'] if card else cid}")
-        await q.message.delete()
+            await update.effective_chat.send_message(
+                f"Ты выбрал: {card['name'] if card else cid}", reply_markup=reply_markup
+            )
+
         if step + 1 >= spread:
+            proc = await update.effective_chat.send_message("⌛ Ваш расклад готовится, подождите...")
             cards = [next(c for c in deck if c["id"] == x) for x in ctx.user_data["picked"]]
             dob = ctx.user_data.get("dob1")
             gender = ctx.user_data.get("gender")
@@ -500,28 +536,30 @@ async def router(update: Update, ctx):
             report = await loop.run_in_executor(None, build_tarot, cards, spread, dob, gender)
             dec_credit(uid, ADMIN_IDS)
             ctx.user_data.clear()
-            await update.effective_chat.send_message(report + FOOTER_TAROT, parse_mode="Markdown")
-            await show_main(update, ctx, uid)
+            try:
+                await proc.delete()
+            except BadRequest:
+                pass
+            await update.effective_chat.send_message(
+                report + FOOTER_TAROT,
+                parse_mode="Markdown",
+                reply_markup=kb_home(),
+            )
+            schedule_reminders(ctx, uid)
         else:
             ctx.user_data["step"] = step + 1
-            options = pick_options(deck, set(ctx.user_data["picked"]), {1:6,3:5,5:4}[spread])
-            back_id = meta.get("back_file_id")
-            if back_id:
-                await ctx.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=back_id,
-                    caption="Выбери карту:",
-                    reply_markup=kb_cards(options, ctx.user_data["step"]),
-                )
-            else:
-                await update.effective_chat.send_message(
-                    "Выбери карту:", reply_markup=kb_cards(options, ctx.user_data["step"])
-                )
     elif data.startswith("gender_"):
         ctx.user_data["gender"] = "мужчина" if data.endswith("m") else "женщина"
+        pid = ctx.user_data.pop("prompt_id", None)
+        if pid:
+            try:
+                await ctx.bot.delete_message(update.effective_chat.id, pid)
+            except BadRequest:
+                pass
         if ctx.user_data.get("mode") == "num_gender":
             ctx.user_data["mode"] = "num_topic"
-            await show("Выберите область:", update, ctx, kb_topic())
+            m = await show("Выберите область:", update, ctx, kb_topic())
+            ctx.user_data["prompt_id"] = m.message_id
     elif data.startswith("topic_"):
         topic_map = {
             "rel": "Отношения",
@@ -530,9 +568,16 @@ async def router(update: Update, ctx):
             "family": "Семья",
         }
         ctx.user_data["topic"] = topic_map.get(data.split("_",1)[1])
+        pid = ctx.user_data.pop("prompt_id", None)
+        if pid:
+            try:
+                await ctx.bot.delete_message(update.effective_chat.id, pid)
+            except BadRequest:
+                pass
         if ctx.user_data["topic"] == "Отношения":
             ctx.user_data["mode"] = "num_dob2"
-            await show("Введите дату второго человека (ДД.ММ.ГГГГ)", update, ctx, kb_back(), menu=False)
+            m = await show("Введите дату второго человека (ДД.ММ.ГГГГ)", update, ctx, kb_back(), menu=False)
+            ctx.user_data["prompt_id"] = m.message_id
         else:
             await send_numerology(update, ctx, uid)
     elif data == "how":
@@ -544,10 +589,12 @@ async def router(update: Update, ctx):
         code = names[0] if names else str(uid)
         link = f"https://t.me/{ctx.bot.username}?start={code}"
         await show(
-            "Если у тебя есть друзья, которым ты тоже желаешь только "
-            "успешных знакомств, приглашай их и получай бонусы!\n\n"
+            r"Если вдруг у тебя закончились бонусы, не переживай! "
+            r"Предложи этого бота друзьям и получи дополнительные анализы.\n\n"
             f"🔗 Твоя ссылка: `{link}`\n\n"
-            f"За каждого нового пользователя — *+{BONUS_REF} анализа*.",
+            f"За каждого нового пользователя — *+{BONUS_REF} анализа*. "
+            "Перешедшие по именной ссылке получают 2 анализа.\n"
+            "Используй `/alias <имя>` для красивой ссылки.",
             update,
             ctx,
             kb_back(),
@@ -605,11 +652,20 @@ async def send_numerology(update: Update, ctx, uid: int):
     dob2 = ctx.user_data.pop("dob2", None)
     gender = ctx.user_data.pop("gender", None)
     topic = ctx.user_data.pop("topic", None)
+    proc = await update.effective_chat.send_message("⌛ Ваш запрос обрабатывается, подождите...")
     loop = asyncio.get_running_loop()
     report = await loop.run_in_executor(None, build_numerology, dob1, gender, topic, dob2)
     dec_credit(uid, ADMIN_IDS)
-    await update.effective_chat.send_message(report + FOOTER, parse_mode="Markdown")
-    await show_main(update, ctx, uid)
+    try:
+        await proc.delete()
+    except BadRequest:
+        pass
+    await update.effective_chat.send_message(
+        report + FOOTER,
+        parse_mode="Markdown",
+        reply_markup=kb_home(),
+    )
+    schedule_reminders(ctx, uid)
 
 
 async def handle_text(update: Update, ctx):
@@ -619,14 +675,27 @@ async def handle_text(update: Update, ctx):
         if not dob:
             await update.message.reply_text("Введите дату в формате ДД.ММ.ГГГГ")
             return
+        pid = ctx.user_data.pop("prompt_id", None)
+        if pid:
+            try:
+                await ctx.bot.delete_message(update.effective_chat.id, pid)
+            except BadRequest:
+                pass
         ctx.user_data["dob1"] = dob
         ctx.user_data["mode"] = "num_gender"
-        await update.message.reply_text("Укажите пол:", reply_markup=kb_gender())
+        m = await update.message.reply_text("Укажите пол:", reply_markup=kb_gender())
+        ctx.user_data["prompt_id"] = m.message_id
     elif mode == "num_dob2":
         dob = parse_date(update.message.text)
         if not dob:
             await update.message.reply_text("Введите дату в формате ДД.ММ.ГГГГ")
             return
+        pid = ctx.user_data.pop("prompt_id", None)
+        if pid:
+            try:
+                await ctx.bot.delete_message(update.effective_chat.id, pid)
+            except BadRequest:
+                pass
         ctx.user_data["dob2"] = dob
         await send_numerology(update, ctx, update.effective_user.id)
     else:
@@ -773,6 +842,13 @@ async def stats(update: Update, ctx):
     pay_visits = unique_event_users("pay")
     pay_clicks = unique_event_users_like("buy_")
     pay_backs = unique_event_users("back_pay")
+    payments = payment_stats()
+    pay_users = unique_payers()
+    cnt_card = sum(c for m, q, c in payments if m == "card")
+    cnt_star = sum(c for m, q, c in payments if m != "card")
+    total_rub = sum(PACKS_RUB[q] * c for m, q, c in payments if m == "card") // 100
+    total_star = sum(PACKS_STARS[q] * c for m, q, c in payments if m != "card")
+    top_method = "₽" if cnt_card >= cnt_star else "⭐"
 
     rows = [
         ("Новых за 1д", day1),
@@ -782,6 +858,10 @@ async def stats(update: Update, ctx):
         ("Перешли к оплате", pay_visits),
         ("Нажали оплатить", pay_clicks),
         ("Назад из оплаты", pay_backs),
+        ("Оплатили", pay_users),
+        ("Сумма ₽", total_rub),
+        ("Сумма ⭐", total_star),
+        ("Популярный метод", top_method),
         ("Всего проверок", total),
         ("Коллега", scans["colleague"]),
         ("Отношения", scans["romance"]),
@@ -829,21 +909,26 @@ async def stats_referrals(update: Update, ctx):
 
 @admin_only
 async def cache_back(update: Update, ctx):
-    """Залить 'рубашку' и сохранить её file_id"""
+    """Отправить 'рубашку' в канал-кэш и запомнить message_id."""
     data = _load_cards_json()
+    cache_id = CACHE_CHAT_ID or data.get("cache_chat_id")
+    if not cache_id:
+        await update.message.reply_text("Не задан CACHE_CHAT_ID")
+        return
     if not BACK_PATH.exists():
         await update.message.reply_text(f"Не найден файл {BACK_PATH}")
         return
     with BACK_PATH.open("rb") as f:
-        m = await ctx.bot.send_photo(chat_id=update.effective_chat.id, photo=f, caption="Рубашка")
-    data["back_file_id"] = m.photo[-1].file_id
+        m = await ctx.bot.send_photo(cache_id, photo=f, caption="Рубашка")
+    data["cache_chat_id"] = cache_id
+    data["back_msg_id"] = m.message_id
     _save_cards_json(data)
     await update.message.reply_text("✅ Рубашка сохранена.")
 
 
 @admin_only
 async def cache_cards(update: Update, ctx):
-    """Закачать все карты админу, собрать file_id"""
+    """Закачать все карты в канал-кэш и запомнить message_id."""
     if not CARDS_DIR.exists():
         await update.message.reply_text(f"Не найдена папка {CARDS_DIR}")
         return
@@ -854,6 +939,10 @@ async def cache_cards(update: Update, ctx):
         return
 
     data = _load_cards_json()
+    cache_id = CACHE_CHAT_ID or data.get("cache_chat_id")
+    if not cache_id:
+        await update.message.reply_text("Не задан CACHE_CHAT_ID")
+        return
     known = {c["id"] for c in data.get("cards", [])}
     added = 0
 
@@ -867,9 +956,8 @@ async def cache_cards(update: Update, ctx):
             continue
         try:
             with path.open("rb") as f:
-                m = await ctx.bot.send_photo(chat_id=update.effective_chat.id, photo=f, caption=name)
-            file_id = m.photo[-1].file_id
-            data.setdefault("cards", []).append({"id": cid, "name": name, "file_id": file_id})
+                m = await ctx.bot.send_photo(cache_id, photo=f, caption=name)
+            data.setdefault("cards", []).append({"id": cid, "name": name, "msg_id": m.message_id})
             added += 1
             if added % 5 == 0:
                 _save_cards_json(data)
