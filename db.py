@@ -25,6 +25,7 @@ def _get_conn() -> sqlite3.Connection:
         DB_PATH, check_same_thread=False, isolation_level=None
     )  # autocommit
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.execute(
         """CREATE TABLE IF NOT EXISTS users(
@@ -58,10 +59,20 @@ def _get_conn() -> sqlite3.Connection:
     )
     conn.execute(
         """CREATE TABLE IF NOT EXISTS payments(
+                        provider_charge_id TEXT PRIMARY KEY,
                         uid     INTEGER,
                         qty     INTEGER,
                         method  TEXT,
                         ts      INTEGER)"""
+    )
+    try:
+        conn.execute(
+            "ALTER TABLE payments ADD COLUMN provider_charge_id TEXT"
+        )
+    except sqlite3.OperationalError:
+        pass
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_payments_charge ON payments(provider_charge_id)"
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS ix_payments_uid ON payments(uid)"
@@ -255,13 +266,14 @@ def aliases_for(uid: int) -> list[str]:
     return [r[0] for r in rows]
 
 
-def log_payment(uid: int, qty: int, method: str):
-    """Сохраняет факт оплаты."""
+def log_payment(uid: int, qty: int, method: str, charge_id: str) -> bool:
+    """Сохраняет факт оплаты. Возвращает True, если запись новая."""
     with _LOCK:
-        DB.execute(
-            "INSERT INTO payments(uid, qty, method, ts) VALUES(?,?,?,?)",
-            (uid, qty, method, int(time.time())),
+        cur = DB.execute(
+            "INSERT OR IGNORE INTO payments(provider_charge_id, uid, qty, method, ts) VALUES(?,?,?,?,?)",
+            (charge_id, uid, qty, method, int(time.time())),
         )
+        return cur.rowcount > 0
 
 
 def referral_payment_stats() -> list[tuple[int, str, int, int]]:

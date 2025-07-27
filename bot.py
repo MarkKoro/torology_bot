@@ -485,10 +485,9 @@ async def router(update: Update, ctx):
         ctx.user_data["mode"] = "tarot_spread"
         await show(
             "Выбери расклад:\n"
-            "🃏 Карта дня/совет → одна карта.\n"
-            "🕰 Прошлое → первая, ⚡ Настоящее → вторая, 🚀 Будущее → третья.\n"
-            "🎯 Ситуация → первая, ⚠️ Узкое место → вторая, 🧭 Совет → третья, "
-            "🔋 Ресурс → четвёртая, 🏁 Итог → пятая.",
+            "🃏 1 карта — карта дня/совет\n\n"
+            "🃏🃏🃏 3 карты — прошлое → настоящее → будущее\n\n"
+            "🃏🃏🃏🃏🃏 5 карт — ситуация → узкое место → совет → ресурс → итог",
             update,
             ctx,
             kb_spread(),
@@ -530,10 +529,7 @@ async def router(update: Update, ctx):
             (c for c in meta.get("cards", []) if c["id"] == cid and c.get("msg_id")),
             None,
         )
-        try:
-            await q.message.delete()
-        except BadRequest:
-            pass
+        # не удаляем выбранные карты, чтобы пользователь видел весь расклад
         if step + 1 >= spread:
             reply_markup = None
         else:
@@ -736,9 +732,10 @@ async def paid(update: Update, ctx):
     qty = int(parts[1])
     method = parts[2] if len(parts) > 2 else "card"
     uid = update.effective_user.id
+    charge_id = update.message.successful_payment.provider_payment_charge_id
     log_event("paid", uid)
-    log_payment(uid, qty, method)
-    add_credits(uid, qty)
+    if log_payment(uid, qty, method, charge_id):
+        add_credits(uid, qty)
     credits = get_credits(uid, ADMIN_IDS)
     # удалить счёт
     inv_id = ctx.user_data.pop("inv_msg", None)

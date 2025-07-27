@@ -50,12 +50,15 @@ TAROT_PROMPT = """
 Сразу выдай финальный цельный текст на основе входных данных выше. Не добавляй префиксы вроде “Ответ:” и не перечисляй сами входные поля."""
 
 
-def build_numerology(dob1: str, gender: str | None = None, topic: str | None = None, dob2: str | None = None) -> str:
+def build_numerology(
+    dob1: str, gender: str | None = None, topic: str | None = None, dob2: str | None = None
+) -> str:
     data = {
         "dob": dob1,
+        "partner_dob": dob2,
+        "domain": topic,
         "gender": gender,
-        "topic": topic,
-        "dob2": dob2,
+        "today": dt.date.today().isoformat(),
     }
     resp = client.chat.completions.create(
         model="deepseek-chat",
