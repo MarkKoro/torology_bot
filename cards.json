@@ -1,0 +1,776 @@
+{
+  "cache_chat_id": -1002346029563,
+  "back_msg_id": 7,
+  "cards": [
+    {
+      "id": "c00",
+      "name": "Шут",
+      "msg_id": null
+    },
+    {
+      "id": "c01",
+      "name": "Маг",
+      "msg_id": null
+    },
+    {
+      "id": "c02",
+      "name": "Верховная Жрица",
+      "msg_id": null
+    },
+    {
+      "id": "c03",
+      "name": "Императрица",
+      "msg_id": null
+    },
+    {
+      "id": "c04",
+      "name": "Император",
+      "msg_id": null
+    },
+    {
+      "id": "c05",
+      "name": "Иерофант",
+      "msg_id": null
+    },
+    {
+      "id": "c06",
+      "name": "Влюблённые",
+      "msg_id": null
+    },
+    {
+      "id": "c07",
+      "name": "Колесница",
+      "msg_id": null
+    },
+    {
+      "id": "c08",
+      "name": "Сила",
+      "msg_id": null
+    },
+    {
+      "id": "c09",
+      "name": "Отшельник",
+      "msg_id": null
+    },
+    {
+      "id": "c10",
+      "name": "Колесо Фортуны",
+      "msg_id": null
+    },
+    {
+      "id": "c11",
+      "name": "Справедливость",
+      "msg_id": null
+    },
+    {
+      "id": "c12",
+      "name": "Повешенный",
+      "msg_id": null
+    },
+    {
+      "id": "c13",
+      "name": "Смерть",
+      "msg_id": null
+    },
+    {
+      "id": "c14",
+      "name": "Умеренность",
+      "msg_id": null
+    },
+    {
+      "id": "c15",
+      "name": "Дьявол",
+      "msg_id": null
+    },
+    {
+      "id": "c16",
+      "name": "Башня",
+      "msg_id": null
+    },
+    {
+      "id": "c17",
+      "name": "Звезда",
+      "msg_id": null
+    },
+    {
+      "id": "c18",
+      "name": "Луна",
+      "msg_id": null
+    },
+    {
+      "id": "c19",
+      "name": "Солнце",
+      "msg_id": null
+    },
+    {
+      "id": "c20",
+      "name": "Суд",
+      "msg_id": null
+    },
+    {
+      "id": "c21",
+      "name": "Мир",
+      "msg_id": null
+    },
+    {
+      "id": "c22",
+      "name": "Туз Жезлов",
+      "msg_id": null
+    },
+    {
+      "id": "c23",
+      "name": "Двойка Жезлов",
+      "msg_id": null
+    },
+    {
+      "id": "c24",
+      "name": "Тройка Жезлов",
+      "msg_id": null
+    },
+    {
+      "id": "c25",
+      "name": "Четвёрка Жезлов",
+      "msg_id": null
+    },
+    {
+      "id": "c26",
+      "name": "Пятёрка Жезлов",
+      "msg_id": null
+    },
+    {
+      "id": "c27",
+      "name": "Шестёрка Жезлов",
+      "msg_id": null
+    },
+    {
+      "id": "c28",
+      "name": "Семёрка Жезлов",
+      "msg_id": null
+    },
+    {
+      "id": "c29",
+      "name": "Восьмёрка Жезлов",
+      "msg_id": null
+    },
+    {
+      "id": "c30",
+      "name": "Девятка Жезлов",
+      "msg_id": null
+    },
+    {
+      "id": "c31",
+      "name": "Десятка Жезлов",
+      "msg_id": null
+    },
+    {
+      "id": "c32",
+      "name": "Паж Жезлов",
+      "msg_id": null
+    },
+    {
+      "id": "c33",
+      "name": "Рыцарь Жезлов",
+      "msg_id": null
+    },
+    {
+      "id": "c34",
+      "name": "Королева Жезлов",
+      "msg_id": null
+    },
+    {
+      "id": "c35",
+      "name": "Король Жезлов",
+      "msg_id": null
+    },
+    {
+      "id": "c36",
+      "name": "Туз Кубков",
+      "msg_id": null
+    },
+    {
+      "id": "c37",
+      "name": "Двойка Кубков",
+      "msg_id": null
+    },
+    {
+      "id": "c38",
+      "name": "Тройка Кубков",
+      "msg_id": null
+    },
+    {
+      "id": "c39",
+      "name": "Четвёрка Кубков",
+      "msg_id": null
+    },
+    {
+      "id": "c40",
+      "name": "Пятёрка Кубков",
+      "msg_id": null
+    },
+    {
+      "id": "c41",
+      "name": "Шестёрка Кубков",
+      "msg_id": null
+    },
+    {
+      "id": "c42",
+      "name": "Семёрка Кубков",
+      "msg_id": null
+    },
+    {
+      "id": "c43",
+      "name": "Восьмёрка Кубков",
+      "msg_id": null
+    },
+    {
+      "id": "c44",
+      "name": "Девятка Кубков",
+      "msg_id": null
+    },
+    {
+      "id": "c45",
+      "name": "Десятка Кубков",
+      "msg_id": null
+    },
+    {
+      "id": "c46",
+      "name": "Паж Кубков",
+      "msg_id": null
+    },
+    {
+      "id": "c47",
+      "name": "Рыцарь Кубков",
+      "msg_id": null
+    },
+    {
+      "id": "c48",
+      "name": "Королева Кубков",
+      "msg_id": null
+    },
+    {
+      "id": "c49",
+      "name": "Король Кубков",
+      "msg_id": null
+    },
+    {
+      "id": "c50",
+      "name": "Туз Мечей",
+      "msg_id": null
+    },
+    {
+      "id": "c51",
+      "name": "Двойка Мечей",
+      "msg_id": null
+    },
+    {
+      "id": "c52",
+      "name": "Тройка Мечей",
+      "msg_id": null
+    },
+    {
+      "id": "c53",
+      "name": "Четвёрка Мечей",
+      "msg_id": null
+    },
+    {
+      "id": "c54",
+      "name": "Пятёрка Мечей",
+      "msg_id": null
+    },
+    {
+      "id": "c55",
+      "name": "Шестёрка Мечей",
+      "msg_id": null
+    },
+    {
+      "id": "c56",
+      "name": "Семёрка Мечей",
+      "msg_id": null
+    },
+    {
+      "id": "c57",
+      "name": "Восьмёрка Мечей",
+      "msg_id": null
+    },
+    {
+      "id": "c58",
+      "name": "Девятка Мечей",
+      "msg_id": null
+    },
+    {
+      "id": "c59",
+      "name": "Десятка Мечей",
+      "msg_id": null
+    },
+    {
+      "id": "c60",
+      "name": "Паж Мечей",
+      "msg_id": null
+    },
+    {
+      "id": "c61",
+      "name": "Рыцарь Мечей",
+      "msg_id": null
+    },
+    {
+      "id": "c62",
+      "name": "Королева Мечей",
+      "msg_id": null
+    },
+    {
+      "id": "c63",
+      "name": "Король Мечей",
+      "msg_id": null
+    },
+    {
+      "id": "c64",
+      "name": "Туз Пентаклей",
+      "msg_id": null
+    },
+    {
+      "id": "c65",
+      "name": "Двойка Пентаклей",
+      "msg_id": null
+    },
+    {
+      "id": "c66",
+      "name": "Тройка Пентаклей",
+      "msg_id": null
+    },
+    {
+      "id": "c67",
+      "name": "Четвёрка Пентаклей",
+      "msg_id": null
+    },
+    {
+      "id": "c68",
+      "name": "Пятёрка Пентаклей",
+      "msg_id": null
+    },
+    {
+      "id": "c69",
+      "name": "Шестёрка Пентаклей",
+      "msg_id": null
+    },
+    {
+      "id": "c70",
+      "name": "Семёрка Пентаклей",
+      "msg_id": null
+    },
+    {
+      "id": "c71",
+      "name": "Восьмёрка Пентаклей",
+      "msg_id": null
+    },
+    {
+      "id": "c72",
+      "name": "Девятка Пентаклей",
+      "msg_id": null
+    },
+    {
+      "id": "c73",
+      "name": "Десятка Пентаклей",
+      "msg_id": null
+    },
+    {
+      "id": "c74",
+      "name": "Паж Пентаклей",
+      "msg_id": null
+    },
+    {
+      "id": "c75",
+      "name": "Рыцарь Пентаклей",
+      "msg_id": null
+    },
+    {
+      "id": "c76",
+      "name": "Королева Пентаклей",
+      "msg_id": null
+    },
+    {
+      "id": "c77",
+      "name": "Король Пентаклей",
+      "msg_id": null
+    },
+    {
+      "id": "01_cups",
+      "name": "Туз Кубков",
+      "msg_id": 9
+    },
+    {
+      "id": "01_pentacles",
+      "name": "Туз Пентаклей",
+      "msg_id": 10
+    },
+    {
+      "id": "01_swords",
+      "name": "Туз Мечей",
+      "msg_id": 11
+    },
+    {
+      "id": "01_wands",
+      "name": "Туз Жезлов",
+      "msg_id": 12
+    },
+    {
+      "id": "02_cups",
+      "name": "Двойка Кубков",
+      "msg_id": 13
+    },
+    {
+      "id": "02_pentacles",
+      "name": "Двойка Пентаклей",
+      "msg_id": 14
+    },
+    {
+      "id": "02_swords",
+      "name": "Двойка Мечей",
+      "msg_id": 15
+    },
+    {
+      "id": "02_wands",
+      "name": "Двойка Жезлов",
+      "msg_id": 16
+    },
+    {
+      "id": "03_cups",
+      "name": "Тройка Кубков",
+      "msg_id": 17
+    },
+    {
+      "id": "03_pentacles",
+      "name": "Тройка Пентаклей",
+      "msg_id": 18
+    },
+    {
+      "id": "03_swords",
+      "name": "Тройка Мечей",
+      "msg_id": 19
+    },
+    {
+      "id": "03_wands",
+      "name": "Тройка Жезлов",
+      "msg_id": 20
+    },
+    {
+      "id": "04_cups",
+      "name": "Четвёрка Кубков",
+      "msg_id": 21
+    },
+    {
+      "id": "04_pentacles",
+      "name": "Четвёрка Пентаклей",
+      "msg_id": 22
+    },
+    {
+      "id": "04_swords",
+      "name": "Четвёрка Мечей",
+      "msg_id": 23
+    },
+    {
+      "id": "04_wands",
+      "name": "Четвёрка Жезлов",
+      "msg_id": 24
+    },
+    {
+      "id": "05_cups",
+      "name": "Пятёрка Кубков",
+      "msg_id": 25
+    },
+    {
+      "id": "05_pentacles",
+      "name": "Пятёрка Пентаклей",
+      "msg_id": 26
+    },
+    {
+      "id": "05_swords",
+      "name": "Пятёрка Мечей",
+      "msg_id": 27
+    },
+    {
+      "id": "05_wands",
+      "name": "Пятёрка Жезлов",
+      "msg_id": 28
+    },
+    {
+      "id": "06_cups",
+      "name": "Шестёрка Кубков",
+      "msg_id": 29
+    },
+    {
+      "id": "06_pentacles",
+      "name": "Шестёрка Пентаклей",
+      "msg_id": 30
+    },
+    {
+      "id": "06_swords",
+      "name": "Шестёрка Мечей",
+      "msg_id": 31
+    },
+    {
+      "id": "06_wands",
+      "name": "Шестёрка Жезлов",
+      "msg_id": 32
+    },
+    {
+      "id": "07_cups",
+      "name": "Семёрка Кубков",
+      "msg_id": 33
+    },
+    {
+      "id": "07_pentacles",
+      "name": "Семёрка Пентаклей",
+      "msg_id": 34
+    },
+    {
+      "id": "07_swords",
+      "name": "Семёрка Мечей",
+      "msg_id": 35
+    },
+    {
+      "id": "07_wands",
+      "name": "Семёрка Жезлов",
+      "msg_id": 36
+    },
+    {
+      "id": "08_cups",
+      "name": "Восьмёрка Кубков",
+      "msg_id": 37
+    },
+    {
+      "id": "08_pentacles",
+      "name": "Восьмёрка Пентаклей",
+      "msg_id": 38
+    },
+    {
+      "id": "08_swords",
+      "name": "Восьмёрка Мечей",
+      "msg_id": 39
+    },
+    {
+      "id": "08_wands",
+      "name": "Восьмёрка Жезлов",
+      "msg_id": 40
+    },
+    {
+      "id": "09_cups",
+      "name": "Девятка Кубков",
+      "msg_id": 41
+    },
+    {
+      "id": "09_pentacles",
+      "name": "Девятка Пентаклей",
+      "msg_id": 42
+    },
+    {
+      "id": "09_swords",
+      "name": "Девятка Мечей",
+      "msg_id": 43
+    },
+    {
+      "id": "09_wands",
+      "name": "Девятка Жезлов",
+      "msg_id": 44
+    },
+    {
+      "id": "10_cups",
+      "name": "Десятка Кубков",
+      "msg_id": 45
+    },
+    {
+      "id": "10_pentacles",
+      "name": "Десятка Пентаклей",
+      "msg_id": 46
+    },
+    {
+      "id": "10_swords",
+      "name": "Десятка Мечей",
+      "msg_id": 47
+    },
+    {
+      "id": "11_cups",
+      "name": "Паж Кубков",
+      "msg_id": 48
+    },
+    {
+      "id": "11_pentacles",
+      "name": "Паж Пентаклей",
+      "msg_id": 49
+    },
+    {
+      "id": "11_swords",
+      "name": "Паж Мечей",
+      "msg_id": 50
+    },
+    {
+      "id": "11_wands",
+      "name": "Паж Жезлов",
+      "msg_id": 51
+    },
+    {
+      "id": "12_cups",
+      "name": "Рыцарь Кубков",
+      "msg_id": 52
+    },
+    {
+      "id": "12_pentacles",
+      "name": "Рыцарь Пентаклей",
+      "msg_id": 53
+    },
+    {
+      "id": "12_swords",
+      "name": "Рыцарь Мечей",
+      "msg_id": 54
+    },
+    {
+      "id": "12_wands",
+      "name": "Рыцарь Жезлов",
+      "msg_id": 55
+    },
+    {
+      "id": "13_cups",
+      "name": "Королева Кубков",
+      "msg_id": 56
+    },
+    {
+      "id": "13_pentacles",
+      "name": "Королева Пентаклей",
+      "msg_id": 57
+    },
+    {
+      "id": "13_swords",
+      "name": "Королева Мечей",
+      "msg_id": 58
+    },
+    {
+      "id": "13_wands",
+      "name": "Королева Жезлов",
+      "msg_id": 59
+    },
+    {
+      "id": "14_cups",
+      "name": "Король Кубков",
+      "msg_id": 60
+    },
+    {
+      "id": "14_pentacles",
+      "name": "Король Пентаклей",
+      "msg_id": 61
+    },
+    {
+      "id": "14_swords",
+      "name": "Король Мечей",
+      "msg_id": 62
+    },
+    {
+      "id": "14_wands",
+      "name": "Король Жезлов",
+      "msg_id": 63
+    },
+    {
+      "id": "death",
+      "name": "Смерть",
+      "msg_id": 64
+    },
+    {
+      "id": "judgement",
+      "name": "Суд",
+      "msg_id": 65
+    },
+    {
+      "id": "justice",
+      "name": "Справедливость",
+      "msg_id": 66
+    },
+    {
+      "id": "strength",
+      "name": "Сила",
+      "msg_id": 67
+    },
+    {
+      "id": "the_chariot",
+      "name": "Колесница",
+      "msg_id": 68
+    },
+    {
+      "id": "the_devil",
+      "name": "Дьявол",
+      "msg_id": 69
+    },
+    {
+      "id": "the_emperor",
+      "name": "Император",
+      "msg_id": 70
+    },
+    {
+      "id": "the_empress",
+      "name": "Императрица",
+      "msg_id": 71
+    },
+    {
+      "id": "the_fool",
+      "name": "Шут",
+      "msg_id": 72
+    },
+    {
+      "id": "the_hanged_man",
+      "name": "Повешенный",
+      "msg_id": 73
+    },
+    {
+      "id": "the_hermit",
+      "name": "Отшельник",
+      "msg_id": 74
+    },
+    {
+      "id": "the_hierophant",
+      "name": "Иерофант",
+      "msg_id": 75
+    },
+    {
+      "id": "the_high_priestess",
+      "name": "Верховная Жрица",
+      "msg_id": 76
+    },
+    {
+      "id": "the_lovers",
+      "name": "Влюблённые",
+      "msg_id": 77
+    },
+    {
+      "id": "the_magician",
+      "name": "Маг",
+      "msg_id": 78
+    },
+    {
+      "id": "the_moon",
+      "name": "Луна",
+      "msg_id": 79
+    },
+    {
+      "id": "the_star",
+      "name": "Звезда",
+      "msg_id": 80
+    },
+    {
+      "id": "the_sun",
+      "name": "Солнце",
+      "msg_id": 81
+    },
+    {
+      "id": "the_tower",
+      "name": "Башня",
+      "msg_id": 82
+    },
+    {
+      "id": "the_world",
+      "name": "Мир",
+      "msg_id": 83
+    },
+    {
+      "id": "wheel_of_fortune",
+      "name": "Колесо Фортуны",
+      "msg_id": 84
+    }
+  ]
+}
