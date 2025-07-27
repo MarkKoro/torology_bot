@@ -77,6 +77,17 @@ def _get_conn() -> sqlite3.Connection:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS ix_payments_uid ON payments(uid)"
     )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS ab_events(
+                        uid     INTEGER,
+                        ts      INTEGER,
+                        kind    TEXT,
+                        variant TEXT,
+                        length  INTEGER)"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_ab_events_variant ON ab_events(variant)"
+    )
     return conn
 
 
@@ -242,6 +253,15 @@ def referral_counts() -> list[tuple[int, int]]:
     return [(r[0], r[1]) for r in rows]
 
 
+def referral_count(uid: int) -> int:
+    with _LOCK:
+        row = DB.execute(
+            "SELECT COUNT(*) FROM users WHERE parent=?",
+            (uid,),
+        ).fetchone()
+    return row[0] if row else 0
+
+
 def add_alias(uid: int, alias: str) -> bool:
     """Создаёт текстовый реферальный код для пользователя."""
     with _LOCK:
@@ -274,6 +294,14 @@ def log_payment(uid: int, qty: int, method: str, charge_id: str) -> bool:
             (charge_id, uid, qty, method, int(time.time())),
         )
         return cur.rowcount > 0
+
+
+def log_ab_event(uid: int, kind: str, variant: str, length: int):
+    with _LOCK:
+        DB.execute(
+            "INSERT INTO ab_events(uid, ts, kind, variant, length) VALUES(?,?,?,?,?)",
+            (uid, int(time.time()), kind, variant, length),
+        )
 
 
 def referral_payment_stats() -> list[tuple[int, str, int, int]]:

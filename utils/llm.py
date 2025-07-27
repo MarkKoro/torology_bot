@@ -1,4 +1,4 @@
-import os, json, datetime as dt
+import os, json, datetime as dt, threading
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -8,6 +8,14 @@ client = OpenAI(
     api_key=os.getenv("DEEPSEEK_API_KEY"),
     base_url="https://api.deepseek.com"
 )
+
+_LLM_LOCK = threading.Lock()
+_LLM_COUNT = 0
+
+
+def llm_queue_size() -> int:
+    with _LLM_LOCK:
+        return _LLM_COUNT
 
 NUM_PROMPT = """
 Ты — русскоязычный нумеролог‑практик-эксперт пифагорейской школы. Твоя задача — дать понятный, прикладной и человечный разбор без фатализма и без эзотерической дымки. Пиши естественно, словно консультируешь человека лично. Не раскрывай формулы и технику расчётов, не обучай, а интерпретируй по данным ниже.
@@ -34,6 +42,11 @@ NUM_PROMPT = """
 ВЫВОД:
 Сразу выдай финальный цельный текст, адаптированный под тему и вопрос. Не дублируй входные данные и не вставляй служебные пометки."""
 
+NUM_PROMPT_B = """
+Ты — профессиональный нумеролог. Говори дружелюбно и по делу, без назидания и лишних правил.
+Используй данные ниже и сразу переходи к трактовке. Объём текста строго от 2500
+до 3000 символов, без описания методики."""
+
 TAROT_PROMPT = """
 Ты — русскоязычный таролог‑эксперт. Не теоретизируй и не уходи в мистический туман. Дай ясный, человеческий и прикладной текст, который человек сможет сразу использовать. Пиши естественным языком, без клише, без высокопарности и без морализаторства. Не объясняй правила раскладов и методику.
 Даны карты, используй их для задачи.
@@ -49,9 +62,18 @@ TAROT_PROMPT = """
 Строго 2000–2500 символов. Если смысл исчерпан раньше, всё равно удерживай требуемый диапазон за счёт конкретики и применимых пояснений, но без воды и повторов. Жёсткий верхний предел — не более 2700 символов.
 Сразу выдай финальный цельный текст на основе входных данных выше. Не добавляй префиксы вроде “Ответ:” и не перечисляй сами входные поля."""
 
+TAROT_PROMPT_B = """
+Ты — профессиональный таролог. Дай понятный и прикладной разбор карт без лишних
+отступлений. Текст должен занимать от 2000 до 2500 символов. Не объясняй правила
+раскладов, просто опиши ситуацию и рекомендации."""
+
 
 def build_numerology(
-    dob1: str, gender: str | None = None, topic: str | None = None, dob2: str | None = None
+    dob1: str,
+    gender: str | None = None,
+    topic: str | None = None,
+    dob2: str | None = None,
+    variant: str = "A",
 ) -> str:
     data = {
         "dob": dob1,
@@ -60,19 +82,33 @@ def build_numerology(
         "gender": gender,
         "today": dt.date.today().isoformat(),
     }
-    resp = client.chat.completions.create(
-        model="deepseek-chat",
-        messages=[
-            {"role": "system", "content": NUM_PROMPT},
-            {"role": "user", "content": json.dumps(data, ensure_ascii=False)},
-        ],
-        max_tokens=800,
-        temperature=0.7,
-    )
+    prompt = NUM_PROMPT if variant == "A" else NUM_PROMPT_B
+    with _LLM_LOCK:
+        global _LLM_COUNT
+        _LLM_COUNT += 1
+    try:
+        resp = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": json.dumps(data, ensure_ascii=False)},
+            ],
+            max_tokens=800,
+            temperature=0.7,
+        )
+    finally:
+        with _LLM_LOCK:
+            _LLM_COUNT -= 1
     return resp.choices[0].message.content.strip()
 
 
-def build_tarot(cards: list[dict], spread: int, dob: str | None = None, gender: str | None = None) -> str:
+def build_tarot(
+    cards: list[dict],
+    spread: int,
+    dob: str | None = None,
+    gender: str | None = None,
+    variant: str = "A",
+) -> str:
     data = {
         "spread": spread,
         "cards": cards,
@@ -80,13 +116,21 @@ def build_tarot(cards: list[dict], spread: int, dob: str | None = None, gender: 
         "gender": gender,
         "today": dt.date.today().isoformat(),
     }
-    resp = client.chat.completions.create(
-        model="deepseek-chat",
-        messages=[
-            {"role": "system", "content": TAROT_PROMPT},
-            {"role": "user", "content": json.dumps(data, ensure_ascii=False)},
-        ],
-        max_tokens=800,
-        temperature=0.7,
-    )
+    prompt = TAROT_PROMPT if variant == "A" else TAROT_PROMPT_B
+    with _LLM_LOCK:
+        global _LLM_COUNT
+        _LLM_COUNT += 1
+    try:
+        resp = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": json.dumps(data, ensure_ascii=False)},
+            ],
+            max_tokens=800,
+            temperature=0.7,
+        )
+    finally:
+        with _LLM_LOCK:
+            _LLM_COUNT -= 1
     return resp.choices[0].message.content.strip()

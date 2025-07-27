@@ -1,6 +1,6 @@
 # bot.py – версия 02-06-2025: фиксы оплаты, 1-й бесплатный анализ, уведомление grant
 # -*- coding: utf-8 -*-
-import os, logging, asyncio, contextlib, re, html, json, datetime as dt
+import os, logging, asyncio, contextlib, re, html, json, datetime as dt, subprocess
 from pathlib import Path
 from dotenv import load_dotenv
 from telegram import (
@@ -27,7 +27,8 @@ from telegram.ext import (
     AIORateLimiter,
 )
 
-from utils.llm import build_tarot, build_numerology
+from utils.llm import build_tarot, build_numerology, llm_queue_size
+import db
 from db import (
     get_credits,
     add_credits,
@@ -51,6 +52,8 @@ from db import (
     referral_payment_stats,
     payment_stats,
     unique_payers,
+    referral_count,
+    log_ab_event,
 )
 
 # ── Логи ─────────────────────────────────────────────
@@ -58,6 +61,7 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO
 )
 log = logging.getLogger(__name__)
+START_TIME = dt.datetime.now()
 
 # ── ENV ──────────────────────────────────────────────
 load_dotenv()
@@ -554,7 +558,10 @@ async def router(update: Update, ctx):
             dob = ctx.user_data.get("dob1")
             gender = ctx.user_data.get("gender")
             loop = asyncio.get_running_loop()
-            report = await loop.run_in_executor(None, build_tarot, cards, spread, dob, gender)
+            variant = "B" if uid % 2 else "A"
+            report = await loop.run_in_executor(None, build_tarot, cards, spread, dob, gender, variant)
+            log_event(f"tarot{variant}", uid)
+            log_ab_event(uid, "tarot", variant, len(report))
             dec_credit(uid, ADMIN_IDS)
             ctx.user_data.clear()
             try:
@@ -674,7 +681,10 @@ async def send_numerology(update: Update, ctx, uid: int):
     topic = ctx.user_data.pop("topic", None)
     proc = await update.effective_chat.send_message("⌛ Ваш запрос обрабатывается, подождите...")
     loop = asyncio.get_running_loop()
-    report = await loop.run_in_executor(None, build_numerology, dob1, gender, topic, dob2)
+    variant = "B" if uid % 2 else "A"
+    report = await loop.run_in_executor(None, build_numerology, dob1, gender, topic, dob2, variant)
+    log_event(f"num{variant}", uid)
+    log_ab_event(uid, "num", variant, len(report))
     dec_credit(uid, ADMIN_IDS)
     try:
         await proc.delete()
@@ -792,6 +802,23 @@ def schedule_reminders(ctx, uid):
     ctx.job_queue.run_once(reminder2, REMIND2_SEC, chat_id=uid, name=f"rem2_{uid}")
 
 
+async def ping(update: Update, ctx):
+    await update.message.reply_text("pong")
+
+
+@admin_only
+async def health(update: Update, ctx):
+    uptime = dt.datetime.now() - START_TIME
+    tasks = len(asyncio.all_tasks())
+    llm = llm_queue_size()
+    try:
+        ver = subprocess.check_output(["git", "describe", "--always"]).decode().strip()
+    except Exception:
+        ver = "unknown"
+    text = f"uptime: {uptime}\ntasks: {tasks}\nllm queue: {llm}\nversion: {ver}"
+    await update.message.reply_text(text)
+
+
 
 
 # ── /grant ──────────────────────────────────────────
@@ -848,6 +875,31 @@ async def set_alias_cmd(update: Update, ctx):
         await update.message.reply_text(f"🔗 Твоя ссылка: {link}")
     else:
         await update.message.reply_text("❌ Имя занято.")
+
+
+async def profile(update: Update, ctx):
+    uid = update.effective_user.id
+    name = html.escape(update.effective_user.full_name)
+    credits = get_credits(uid, ADMIN_IDS)
+    answers = (
+        event_count(uid, "numA")
+        + event_count(uid, "numB")
+        + event_count(uid, "tarotA")
+        + event_count(uid, "tarotB")
+    )
+    refs = referral_count(uid)
+    names = aliases_for(uid)
+    code = names[0] if names else str(uid)
+    link = f"https://t.me/{ctx.bot.username}?start={code}"
+    kb = Mk([[Btn("Скопировать", switch_inline_query=link)]])
+    text = (
+        f"<b>{name}</b>\n"
+        f"Баланс: {credits}\n"
+        f"Ответов получено: {answers}\n"
+        f"Привёл друзей: {refs}\n"
+        f"<code>{link}</code>"
+    )
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
 
 
 async def stats(update: Update, ctx):
@@ -925,6 +977,32 @@ async def stats_referrals(update: Update, ctx):
         )
 
     text = "<b>Рефералы</b>\n<pre>\n" + "\n".join(table) + "\n</pre>"
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+
+@admin_only
+async def ab_stats(update: Update, ctx):
+    rows = db.DB.execute(
+        "SELECT variant, COUNT(*), AVG(length), COUNT(DISTINCT uid) FROM ab_events GROUP BY variant"
+    ).fetchall()
+    data = {r[0]: {"count": r[1], "avg": int(r[2] or 0), "users": r[3]} for r in rows}
+    firsts = db.DB.execute(
+        "SELECT uid, variant, MIN(ts) FROM ab_events GROUP BY uid, variant"
+    ).fetchall()
+    retain = {"A": 0, "B": 0}
+    paid = {"A": 0, "B": 0}
+    for uid, var, ts in firsts:
+        if db.DB.execute("SELECT 1 FROM events WHERE uid=? AND ts>=?", (uid, ts + 86400)).fetchone():
+            retain[var] += 1
+        if db.DB.execute("SELECT 1 FROM payments WHERE uid=? AND ts>=?", (uid, ts)).fetchone():
+            paid[var] += 1
+    table = ["|Ver|Users|AvgLen|Ret24|Paid|", "|---|---:|---:|---:|---:|"]
+    for v in ("A", "B"):
+        st = data.get(v, {})
+        table.append(
+            f"|{v}|{st.get('users',0)}|{st.get('avg',0)}|{retain.get(v,0)}|{paid.get(v,0)}|"
+        )
+    text = "<b>A/B статистика</b>\n<pre>\n" + "\n".join(table) + "\n</pre>"
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 
@@ -1078,8 +1156,12 @@ def main():
             CommandHandler("grant", grant),
             CommandHandler("broadcast", broadcast),
             CommandHandler("alias", set_alias_cmd),
+            CommandHandler("profile", profile),
             CommandHandler("stats", stats),
             CommandHandler("stats_referrals", stats_referrals),
+            CommandHandler("ab_stats", ab_stats),
+            CommandHandler("ping", ping),
+            CommandHandler("health", health),
             CommandHandler("cache_back", cache_back),
             CommandHandler("cache_cards", cache_cards),
             CommandHandler("cards_cleanup", cards_cleanup),
