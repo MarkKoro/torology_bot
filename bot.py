@@ -1,8 +1,8 @@
 # bot.py – версия 02-06-2025: фиксы оплаты, 1-й бесплатный анализ, уведомление grant
 # -*- coding: utf-8 -*-
-import os, io, logging, asyncio, contextlib, re, html
+import os, logging, asyncio, contextlib, re, html, json, datetime as dt
+from pathlib import Path
 from dotenv import load_dotenv
-from PIL import Image
 from telegram import (
     Update,
     InlineKeyboardButton as Btn,
@@ -26,8 +26,7 @@ from telegram.ext import (
     filters,
 )
 
-from utils.facepp import detect_attributes
-from utils.llm import build_profile
+from utils.llm import build_tarot, build_numerology
 from db import (
     get_credits,
     add_credits,
@@ -67,32 +66,14 @@ ADMIN_IDS = {int(x) for x in os.getenv("ADMINS", "").split(",") if x}
 # ── Текст ────────────────────────────────────────────
 GREETING = (
     "👋 *Добро пожаловать в Лицемер.*\n"
-    "1. Мы проводим научный физиогномический анализ прямо по вашей фотографии.\n"
-    "Методика основана на проверенных исследованиях и подтверждённой статистике.\n"
-    "Этот бот читает людей и выдает тебе инструкцию к достижению желаемой цели.\n"
-    "—\n"
-    "🔹 Найти подход к коллеге по работе 🤝\n"
-    "🔹 Получить ключик к сердцу противоположного пола 🔑❤️\n"
-    "🔹 Узнать получше клиента перед продажей 💼\n"
-    "🔹 Провести общий анализ и свериться с тем, что вы и так знаете 🔍\n"
-    "Выбирай цель, скидывай фото, получай гайд, всё просто, удачи!\n"
-    "\n"
-    "2. Проводит тарологический прогноз\n"
+    "1. Мы проводим нумерологический анализ по дате рождения.\n"
+    "2. Делаем таро-прогноз по выбранным картам.\n"
     "_Первый анализ бесплатен._ Пригласи друга по реферальной ссылке и получи +2 анализа."
 )
 HOW_IT_WORKS = (
     "*Как это работает?*\n"
-    "📊 Физиогномика: фото обрабатывается физиогномическим анализом, базирующимся на научных исследованиях и данных с известной погрешностью из открытых источников.\n"
-    "1. Фото обрабатывается и извлекаются ключевые физиогномические данные.\n"
-    "2. На основе этих данных формируется точный профиль характера и темперамента.\n"
-    "3. Готовый анализ сразу отправляется вам.\n"
-    "—\n"
-    "🃏 Тарологический прогноз:\n"
-    "Мы считываем твою мимику, эмоции, состояние — и превращаем их в пять «карт»:\n"
-    "архетипы из системы Таро, но без суеверий. Вместо колоды — ты сам.\n"
-    "Твое лицо как маршрут на день: что внутри движется, что мешает, что поддерживает, и к чему зовёт твоя энергия прямо сейчас.\n\n"
-    "🗝️ Это инструмент для понимания, не для предсказания.\n"
-    "И пусть сегодняшний день начнётся с понимания того, кто ты есть именно сейчас.\n\n"
+    "📊 Нумерология: ты вводишь дату рождения и получаешь подробный анализ.\n"
+    "🃏 Тарологический прогноз: выбираешь карты из колоды и узнаёшь их значение.\n"
     "🔥 Пригласи друга → +2 анализа."
 )
 FOOTER = (
@@ -119,8 +100,37 @@ PACKS_STARS = {2: 55, 5: 110, 10: 220}
 BONUS_REF = 2
 REMIND1_SEC = 24 * 3600
 REMIND2_SEC = 72 * 3600
-SEM = asyncio.Semaphore(32)
-PHOTO_TIMEOUT_SEC = 15 * 60
+
+with open(Path(__file__).with_name("cards.json"), encoding="utf-8") as f:
+    _names = json.load(f)["tarot_cards"]
+ALL_CARDS = [{"id": f"c{i:02d}", "name": n} for i, n in enumerate(_names)]
+
+DATE_RE = re.compile(r"(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})")
+
+def parse_date(text: str) -> str | None:
+    m = DATE_RE.search(text)
+    if not m:
+        return None
+    d, mnt, y = m.groups()
+    try:
+        dt.date(int(y), int(mnt), int(d))
+    except ValueError:
+        return None
+    return f"{int(d):02d}.{int(mnt):02d}.{y}"
+
+def new_session_deck(uid: int, kind: str) -> list[dict]:
+    import random, hashlib
+    seed_text = f"{uid}:{dt.date.today().isoformat()}:{kind}"
+    seed = int(hashlib.sha256(seed_text.encode()).hexdigest(), 16) % (10**8)
+    rnd = random.Random(seed)
+    deck = ALL_CARDS.copy()
+    rnd.shuffle(deck)
+    return deck
+
+
+def pick_options(deck: list[dict], picked: set[str], k: int) -> list[dict]:
+    candidates = [c for c in deck if c["id"] not in picked]
+    return candidates[:k]
 
 
 class TypingCtx:
@@ -169,8 +179,8 @@ async def show_main(update: Update, ctx, uid: int | None = None):
 def kb_main(uid: int, credits: int) -> Mk:
     return Mk(
         [
-            [Btn("🔍 Физиогномический анализ", callback_data="scan")],
-            [Btn("🃏 ТАРОлогический прогноз", callback_data="tarot")],
+            [Btn("🔢 Нумерология", callback_data="num")],
+            [Btn("🃏 Таро", callback_data="tarot")],
             [Btn("📑 Как это работает?", callback_data="how")],
             [Btn(f"💳 Пополнить баланс ({credits})", callback_data="pay")],
             [Btn("👥 Пригласи друга", callback_data="ref")],
@@ -207,16 +217,44 @@ def kb_topup(credits: int = 0):
     return Mk([[Btn(f"💳 Пополнить баланс ({credits})", callback_data="pay")]])
 
 
-def kb_scenario():
+def kb_gender():
     return Mk(
         [
-            [Btn("🧩 Подход к коллеге", callback_data="scn_colleague")],
-            [Btn("💘 Ключ к сердцу", callback_data="scn_romance")],
-            [Btn("🧠 Клиент перед продажей", callback_data="scn_sales")],
-            [Btn("🧬 Общий анализ", callback_data="scn_common")],
+            [Btn("Мужчина", callback_data="gender_m"), Btn("Женщина", callback_data="gender_f")],
             [Btn("← Назад", callback_data="back")],
         ]
     )
+
+
+def kb_topic():
+    return Mk(
+        [
+            [Btn("Отношения", callback_data="topic_rel")],
+            [Btn("Работа", callback_data="topic_work")],
+            [Btn("Саморазвитие", callback_data="topic_self")],
+            [Btn("Семья", callback_data="topic_family")],
+            [Btn("← Назад", callback_data="back")],
+        ]
+    )
+
+
+def kb_spread():
+    return Mk(
+        [
+            [Btn("1 карта", callback_data="spread_1")],
+            [Btn("3 карты", callback_data="spread_3")],
+            [Btn("5 карт", callback_data="spread_5")],
+            [Btn("← Назад", callback_data="back")],
+        ]
+    )
+
+
+def kb_cards(options: list[dict], step: int) -> Mk:
+    rows = []
+    for c in options:
+        rows.append([Btn("🂠", callback_data=f"choose:{c['id']}:{step}")])
+    rows.append([Btn("↩️ В меню", callback_data="back")])
+    return Mk(rows)
 
 
 # ── helper: вывод меню / редактирование ─────────────
@@ -305,138 +343,176 @@ async def router(update: Update, ctx):
     log_event(data, uid)
     credits = get_credits(uid, ADMIN_IDS)
 
-    match data:
-        case "scan":
-            if credits <= 0:
-                await show(
-                    "❌ Проверок нет. Пополни баланс.",
-                    update,
-                    ctx,
-                    kb_topup(credits),
-                    menu=False,
-                )
-                return
+    if data == "num":
+        if credits <= 0:
             await show(
-                "Что именно ты хочешь узнать?",
+                "❌ Проверок нет. Пополни баланс.",
                 update,
                 ctx,
-                kb_scenario(),
+                kb_topup(credits),
+                menu=False,
             )
-        case "tarot":
-            if credits <= 0:
-                await show(
-                    "❌ Проверок нет. Пополни баланс.",
-                    update,
-                    ctx,
-                    kb_topup(credits),
-                    menu=False,
-                )
-                return
-            ctx.user_data["scenario"] = "tarot"
-            schedule_photo_timeout(ctx, uid)
+            return
+        ctx.user_data.clear()
+        ctx.user_data["mode"] = "num_dob1"
+        await show("Введите дату рождения (ДД.ММ.ГГГГ)", update, ctx, kb_back(), menu=False)
+    elif data == "tarot":
+        if credits <= 0:
             await show(
-                "📷 Скиньте фото, сделанное сегодня.\n\n"
-                "Мы считываем твою мимику, эмоции, состояние — и превращаем их в пять «карт»:\n"
-                "архетипы из системы Таро, но без суеверий. Вместо колоды — ты сам.\n"
-                "Твое лицо как маршрут на день: что внутри движется, что мешает, что поддерживает, и к чему зовёт твоя энергия прямо сейчас.\n\n"
-                "🗝️ Это инструмент для понимания, не для предсказания.\n"
-                "И пусть сегодняшний день начнётся с понимания того, кто ты есть именно сейчас.\n\n"
-                "—\n"
-                "Бот работает, подождите около 40 секунд до ответа.",
+                "❌ Проверок нет. Пополни баланс.",
                 update,
                 ctx,
-                kb_back(),
+                kb_topup(credits),
+                menu=False,
             )
-        case "how":
-            await show(HOW_IT_WORKS, update, ctx, kb_back())
-        case "pay":
-            await show("💳 *Выбери пакет:*", update, ctx, kb_pay())
-        case "ref":
-            names = aliases_for(uid)
-            code = names[0] if names else str(uid)
-            link = f"https://t.me/{ctx.bot.username}?start={code}"
-            await show(
-                "Если у тебя есть друзья, которым ты тоже желаешь только "
-                "успешных знакомств, приглашай их и получай бонусы!\n\n"
-                f"🔗 Твоя ссылка: `{link}`\n\n"
-                f"За каждого нового пользователя — *+{BONUS_REF} анализа*.",
-                update,
-                ctx,
-                kb_back(),
-            )
-        case _ if data.startswith("scn_"):
-            if credits <= 0:
-                await show(
-                    "❌ Проверок нет. Пополни баланс.",
-                    update,
-                    ctx,
-                    kb_topup(credits),
-                    menu=False,
-                )
-                return
-            scn = data.split("_", 1)[1]
-            ctx.user_data["scenario"] = scn
-            schedule_photo_timeout(ctx, uid)
-            await show(
-                "📷 Пришли фото для анализа.\n\n"
-                "Лицо крупным планом, без маски или посторонних предметов "
-                "(очки допустимы, но лучше без них). "
-                "На фото должен быть только один человек.\n\n"
-                "—\n"
-                "Бот работает, подождите около 40 секунд до ответа.",
-                update,
-                ctx,
-                kb_back(),
-            )
-        case "back":
-            scn = ctx.user_data.pop("scenario", None)
-            cancel_photo_timeout(ctx, uid)
-            if scn:
-                log_event(f"cancel_{scn}", uid)
+            return
+        ctx.user_data.clear()
+        ctx.user_data["mode"] = "tarot_spread"
+        await show("Выбери расклад:", update, ctx, kb_spread())
+    elif data.startswith("spread_"):
+        spread = int(data.split("_", 1)[1])
+        ctx.user_data["mode"] = "tarot_pick"
+        ctx.user_data["spread"] = spread
+        ctx.user_data["deck"] = new_session_deck(uid, str(spread))
+        ctx.user_data["picked"] = []
+        ctx.user_data["step"] = 0
+        options = pick_options(ctx.user_data["deck"], set(), {1:6,3:5,5:4}[spread])
+        await show("Выбери карту:", update, ctx, kb_cards(options, 0), menu=False)
+    elif data.startswith("choose:"):
+        _, cid, step = data.split(":")
+        step = int(step)
+        ctx.user_data["picked"].append(cid)
+        spread = ctx.user_data["spread"]
+        deck = ctx.user_data["deck"]
+        if step + 1 >= spread:
+            cards = [next(c for c in deck if c["id"] == x) for x in ctx.user_data["picked"]]
+            dob = ctx.user_data.get("dob1")
+            gender = ctx.user_data.get("gender")
+            loop = asyncio.get_running_loop()
+            report = await loop.run_in_executor(None, build_tarot, cards, spread, dob, gender)
+            dec_credit(uid, ADMIN_IDS)
+            ctx.user_data.clear()
+            await q.message.delete()
+            await update.effective_chat.send_message(report + FOOTER_TAROT, parse_mode="Markdown")
             await show_main(update, ctx, uid)
-        case _ if data.startswith("buy_"):
-            _, qty, method = data.split("_")
-            qty = int(qty)
-            if method == "card":
-                token = YK_TOKEN
-                currency = "RUB"
-                price = PACKS_RUB[qty]
-            else:
-                token = ""
-                currency = "XTR"
-                price = PACKS_STARS[qty]
+        else:
+            ctx.user_data["step"] = step + 1
+            options = pick_options(deck, set(ctx.user_data["picked"]), {1:6,3:5,5:4}[spread])
+            await q.message.edit_text("Выбери карту:", reply_markup=kb_cards(options, ctx.user_data["step"]))
+    elif data.startswith("gender_"):
+        ctx.user_data["gender"] = "мужчина" if data.endswith("m") else "женщина"
+        if ctx.user_data.get("mode") == "num_gender":
+            ctx.user_data["mode"] = "num_topic"
+            await show("Выберите область:", update, ctx, kb_topic())
+    elif data.startswith("topic_"):
+        topic_map = {
+            "rel": "Отношения",
+            "work": "Работа",
+            "self": "Саморазвитие",
+            "family": "Семья",
+        }
+        ctx.user_data["topic"] = topic_map.get(data.split("_",1)[1])
+        if ctx.user_data["topic"] == "Отношения":
+            ctx.user_data["mode"] = "num_dob2"
+            await show("Введите дату второго человека (ДД.ММ.ГГГГ)", update, ctx, kb_back(), menu=False)
+        else:
+            await send_numerology(update, ctx, uid)
+    elif data == "how":
+        await show(HOW_IT_WORKS, update, ctx, kb_back())
+    elif data == "pay":
+        await show("💳 *Выбери пакет:*", update, ctx, kb_pay())
+    elif data == "ref":
+        names = aliases_for(uid)
+        code = names[0] if names else str(uid)
+        link = f"https://t.me/{ctx.bot.username}?start={code}"
+        await show(
+            "Если у тебя есть друзья, которым ты тоже желаешь только "
+            "успешных знакомств, приглашай их и получай бонусы!\n\n"
+            f"🔗 Твоя ссылка: `{link}`\n\n"
+            f"За каждого нового пользователя — *+{BONUS_REF} анализа*.",
+            update,
+            ctx,
+            kb_back(),
+        )
+    elif data == "back":
+        ctx.user_data.clear()
+        await show_main(update, ctx, uid)
+    elif data.startswith("buy_"):
+        _, qty, method = data.split("_")
+        qty = int(qty)
+        if method == "card":
+            token = YK_TOKEN
+            currency = "RUB"
+            price = PACKS_RUB[qty]
+        else:
+            token = ""
+            currency = "XTR"
+            price = PACKS_STARS[qty]
 
-            kb = Mk(
-                [
-                    [Btn("Оплатить", pay=True)],
-                    [Btn("← Назад", callback_data="back_pay")],
-                ]
-            )
+        kb = Mk(
+            [
+                [Btn("Оплатить", pay=True)],
+                [Btn("← Назад", callback_data="back_pay")],
+            ]
+        )
 
-            inv = await ctx.bot.send_invoice(
-                chat_id=q.message.chat_id,
-                title=f"{qty} анализа",
-                description="Пакет анализов",
-                payload=f"buy_{qty}_{method}",
-                provider_token=token,
-                currency=currency,
-                prices=[LabeledPrice(f"{qty} анализа", price)],
-                reply_markup=kb,
-            )
-            ctx.user_data["inv_msg"] = inv.message_id
-            old = ctx.user_data.pop("menu_id", None)
-            if old and old != inv.message_id:
-                try:
-                    await ctx.bot.delete_message(q.message.chat_id, old)
-                except BadRequest:
-                    pass
-            ctx.user_data["menu_id"] = inv.message_id
-        case "back_pay":
+        inv = await ctx.bot.send_invoice(
+            chat_id=q.message.chat_id,
+            title=f"{qty} анализа",
+            description="Пакет анализов",
+            payload=f"buy_{qty}_{method}",
+            provider_token=token,
+            currency=currency,
+            prices=[LabeledPrice(f"{qty} анализа", price)],
+            reply_markup=kb,
+        )
+        ctx.user_data["inv_msg"] = inv.message_id
+        old = ctx.user_data.pop("menu_id", None)
+        if old and old != inv.message_id:
             try:
-                await q.message.delete()
+                await ctx.bot.delete_message(q.message.chat_id, old)
             except BadRequest:
                 pass
-            await show("💳 *Выбери пакет:*", update, ctx, kb_pay())
+        ctx.user_data["menu_id"] = inv.message_id
+    elif data == "back_pay":
+        try:
+            await q.message.delete()
+        except BadRequest:
+            pass
+        await show("💳 *Выбери пакет:*", update, ctx, kb_pay())
+
+
+async def send_numerology(update: Update, ctx, uid: int):
+    dob1 = ctx.user_data.pop("dob1")
+    dob2 = ctx.user_data.pop("dob2", None)
+    gender = ctx.user_data.pop("gender", None)
+    topic = ctx.user_data.pop("topic", None)
+    loop = asyncio.get_running_loop()
+    report = await loop.run_in_executor(None, build_numerology, dob1, gender, topic, dob2)
+    dec_credit(uid, ADMIN_IDS)
+    await update.effective_chat.send_message(report + FOOTER, parse_mode="Markdown")
+    await show_main(update, ctx, uid)
+
+
+async def handle_text(update: Update, ctx):
+    mode = ctx.user_data.get("mode")
+    if mode == "num_dob1":
+        dob = parse_date(update.message.text)
+        if not dob:
+            await update.message.reply_text("Введите дату в формате ДД.ММ.ГГГГ")
+            return
+        ctx.user_data["dob1"] = dob
+        ctx.user_data["mode"] = "num_gender"
+        await update.message.reply_text("Укажите пол:", reply_markup=kb_gender())
+    elif mode == "num_dob2":
+        dob = parse_date(update.message.text)
+        if not dob:
+            await update.message.reply_text("Введите дату в формате ДД.ММ.ГГГГ")
+            return
+        ctx.user_data["dob2"] = dob
+        await send_numerology(update, ctx, update.effective_user.id)
+    else:
+        await show_main(update, ctx, update.effective_user.id)
 
 
 # ── Payment ─────────────────────────────────────────
@@ -471,66 +547,6 @@ async def paid(update: Update, ctx):
     await show_main(update, ctx, uid)
 
 
-# ── Фото ────────────────────────────────────────────
-async def handle_photo(update: Update, ctx):
-    uid = update.effective_user.id
-    log_event("photo", uid)
-    cancel_photo_timeout(ctx, uid)
-    if (credits := get_credits(uid, ADMIN_IDS)) <= 0:
-        await update.message.reply_text(
-            "❌ Проверок нет. Пополни баланс.",
-            reply_markup=kb_topup(credits),
-        )
-        return
-
-    scenario = ctx.user_data.get("scenario", "common")
-
-    async with SEM, TypingCtx(ctx.bot, update.message.chat_id):
-        try:
-            raw = await (
-                await ctx.bot.get_file(update.message.photo[-1].file_id)
-            ).download_as_bytearray()
-
-            img = Image.open(io.BytesIO(raw)).convert("RGB")
-            img.thumbnail((640, 640), Image.LANCZOS)
-            buf = io.BytesIO()
-            img.save(buf, "JPEG", quality=85)
-
-            loop = asyncio.get_running_loop()
-            attrs = await loop.run_in_executor(None, detect_attributes, buf.getvalue())
-            report = await loop.run_in_executor(None, build_profile, attrs, scenario)
-        except Exception as e:
-            log.exception("photo processing error", exc_info=e)
-            ctx.user_data["scenario"] = scenario
-            await update.message.reply_text(
-                "⛔ Фотография неподходящая для анализа. Попробуйте прислать изображение, где лицо видно лучше, без масок и посторонних предметов.",
-                reply_markup=kb_back(),
-            )
-            return
-
-    ctx.user_data.pop("scenario", None)
-    log_event(f"ok_{scenario}", uid)
-
-    report = re.sub(r"^\s*#+\s*", "", report, flags=re.MULTILINE)
-    footer = FOOTER_TAROT if scenario == "tarot" else FOOTER
-    await update.message.reply_text(report + footer, parse_mode="Markdown")
-    dec_credit(uid, ADMIN_IDS)
-    credits = get_credits(uid, ADMIN_IDS)
-    await show(
-        f"Доступно: *{credits}* анализов.",
-        update,
-        ctx,
-        kb_main(uid, credits),
-        menu=False,
-        ttl=5,
-    )
-    if credits == 0:
-        await update.effective_chat.send_message(
-            "⛔ Проверок больше нет. Нажми «💳 Пополнить баланс».",
-            reply_markup=kb_topup(credits),
-        )
-    await show_main(update, ctx, uid)
-    schedule_reminders(ctx, uid)
 
 
 async def reminder1(ctx: ContextTypes.DEFAULT_TYPE):
@@ -568,31 +584,6 @@ def schedule_reminders(ctx, uid):
     ctx.job_queue.run_once(reminder2, REMIND2_SEC, chat_id=uid, name=f"rem2_{uid}")
 
 
-def cancel_photo_timeout(ctx, uid):
-    for job in ctx.job_queue.get_jobs_by_name(f"photo_timeout_{uid}"):
-        job.schedule_removal()
-
-
-async def photo_timeout(ctx: ContextTypes.DEFAULT_TYPE):
-    uid = ctx.job.chat_id
-    scn = ctx.application.user_data[uid].pop("scenario", None)
-    if scn:
-        try:
-            credits = get_credits(uid, ADMIN_IDS)
-            await ctx.bot.send_message(
-                uid,
-                "⌛ Время ожидания фото истекло.",
-                reply_markup=kb_main(uid, credits),
-            )
-        except BadRequest:
-            pass
-
-
-def schedule_photo_timeout(ctx, uid):
-    cancel_photo_timeout(ctx, uid)
-    ctx.job_queue.run_once(
-        photo_timeout, PHOTO_TIMEOUT_SEC, chat_id=uid, name=f"photo_timeout_{uid}"
-    )
 
 
 # ── /grant ──────────────────────────────────────────
@@ -757,7 +748,7 @@ def main():
             CallbackQueryHandler(router),
             PreCheckoutQueryHandler(pre_checkout),
             MessageHandler(filters.SUCCESSFUL_PAYMENT, paid),
-            MessageHandler(filters.PHOTO, handle_photo),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text),
             ChatMemberHandler(my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER),
         ]
     )
