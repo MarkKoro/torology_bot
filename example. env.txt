@@ -1,0 +1,6 @@
+BOT_TOKEN=example
+DEEPSEEK_API_KEY=example
+TON_TOKEN=example
+YK_TOKEN=example
+ADMINS=590582222,785415406
+SUPPORT=@gusospardos
