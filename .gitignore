@@ -1,0 +1,21 @@
+# Окружение
+venv/
+__pycache__/
+*.pyc
+
+# Конфиденциальные файлы
+.env
+*.db
+*.db-shm
+*.db-wal
+
+# IDE / редакторы
+.vscode/
+.idea/
+
+# Логи
+*.log
+
+# Системные файлы Windows / Mac
+Thumbs.db
+.DS_Store
