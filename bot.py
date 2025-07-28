@@ -267,11 +267,11 @@ class TypingCtx:
                 await self.task
 
 
-async def show_main(update: Update, ctx, uid: int | None = None):
+async def show_main(update: Update, ctx, uid: int | None = None, *, delete_prev: bool = True):
     uid = uid or update.effective_user.id
     credits = get_credits(uid, ADMIN_IDS)
     text = f"{GREETING}\n\nДоступно: *{credits}* анализов."
-    m = await show(text, update, ctx, kb_main(uid, credits))
+    m = await show(text, update, ctx, kb_main(uid, credits), delete_prev=delete_prev)
     old = get_menu_msg(uid)
     if old and old != m.message_id and not update.callback_query:
         try:
@@ -378,8 +378,9 @@ async def show(
     *,
     menu=True,
     ttl: int = 0,
+    delete_prev: bool = True,
 ) -> Message:
-    if update.callback_query:
+    if update.callback_query and delete_prev:
         try:
             await update.callback_query.message.delete()
         except BadRequest:
@@ -512,7 +513,7 @@ async def router(update: Update, ctx):
         cache_id = meta.get("cache_chat_id")
         back_msg = meta.get("back_msg_id")
         if cache_id and back_msg:
-            await ctx.bot.copy_message(
+            sent = await ctx.bot.copy_message(
                 chat_id=update.effective_chat.id,
                 from_chat_id=cache_id,
                 message_id=back_msg,
@@ -520,10 +521,19 @@ async def router(update: Update, ctx):
                 reply_markup=kb_cards(options, 0),
             )
         else:
-            await show("Выбери карту:", update, ctx, kb_cards(options, 0), menu=False)
+            sent = await show("Выбери карту:", update, ctx, kb_cards(options, 0), menu=False)
+        ctx.user_data["last_card_msg_id"] = sent.message_id
     elif data.startswith("choose:"):
         _, cid, step = data.split(":")
         step = int(step)
+        last_msg = ctx.user_data.get("last_card_msg_id")
+        if last_msg:
+            with contextlib.suppress(BadRequest):
+                await ctx.bot.edit_message_reply_markup(
+                    chat_id=update.effective_chat.id,
+                    message_id=last_msg,
+                    reply_markup=None,
+                )
         ctx.user_data["picked"].append(cid)
         spread = ctx.user_data["spread"]
         deck = ctx.user_data["deck"]
@@ -540,7 +550,7 @@ async def router(update: Update, ctx):
             options = pick_options(deck, set(ctx.user_data["picked"]), {1:6,3:5,5:4}[spread])
             reply_markup = kb_cards(options, step + 1)
         if cache_id and card and card.get("msg_id"):
-            await ctx.bot.copy_message(
+            sent = await ctx.bot.copy_message(
                 chat_id=update.effective_chat.id,
                 from_chat_id=cache_id,
                 message_id=card["msg_id"],
@@ -548,9 +558,13 @@ async def router(update: Update, ctx):
                 reply_markup=reply_markup,
             )
         else:
-            await update.effective_chat.send_message(
+            sent = await update.effective_chat.send_message(
                 f"Ты выбрал: {card['name'] if card else cid}", reply_markup=reply_markup
             )
+        if reply_markup:
+            ctx.user_data["last_card_msg_id"] = sent.message_id
+        else:
+            ctx.user_data.pop("last_card_msg_id", None)
 
         if step + 1 >= spread:
             proc = await update.effective_chat.send_message("⌛ Ваш расклад готовится, подождите...")
@@ -628,7 +642,7 @@ async def router(update: Update, ctx):
         )
     elif data == "back":
         ctx.user_data.clear()
-        await show_main(update, ctx, uid)
+        await show_main(update, ctx, uid, delete_prev=False)
     elif data.startswith("buy_"):
         _, qty, method = data.split("_")
         qty = int(qty)
