@@ -273,11 +273,9 @@ async def show_main(update: Update, ctx, uid: int | None = None, *, delete_prev:
     text = f"{GREETING}\n\nДоступно: *{credits}* анализов."
     m = await show(text, update, ctx, kb_main(uid, credits), delete_prev=delete_prev)
     old = get_menu_msg(uid)
-    if old and old != m.message_id and not update.callback_query:
-        try:
+    if old and old != m.message_id:
+        with contextlib.suppress(BadRequest):
             await ctx.bot.delete_message(m.chat_id, old)
-        except BadRequest:
-            pass
     set_menu_msg(uid, m.message_id)
     return m
 
@@ -368,6 +366,15 @@ def kb_cards(options: list[dict], step: int) -> Mk:
     return Mk(rows)
 
 
+# ── helper: активное меню ───────────────────────────
+async def set_active_menu(ctx, chat_id: int, message_id: int):
+    old = ctx.user_data.pop("menu_id", None)
+    if old and old != message_id:
+        with contextlib.suppress(BadRequest):
+            await ctx.bot.delete_message(chat_id, old)
+    ctx.user_data["menu_id"] = message_id
+
+
 # ── helper: вывод меню / редактирование ─────────────
 async def show(
     text: str,
@@ -381,24 +388,15 @@ async def show(
     delete_prev: bool = True,
 ) -> Message:
     if update.callback_query and delete_prev:
-        try:
+        with contextlib.suppress(BadRequest):
             await update.callback_query.message.delete()
-        except BadRequest:
-            pass
-        ctx.user_data.pop("menu_id", None)
-        old = None
-    else:
-        old = ctx.user_data.pop("menu_id", None)
 
     m = await update.effective_chat.send_message(text, reply_markup=kb, parse_mode=pm)
 
     if menu:
-        if old and old != m.message_id:
-            try:
-                await ctx.bot.delete_message(m.chat_id, old)
-            except BadRequest:
-                pass
-        ctx.user_data["menu_id"] = m.message_id
+        await set_active_menu(ctx, m.chat_id, m.message_id)
+    else:
+        ctx.user_data.pop("menu_id", None)
 
     if ttl:
 
@@ -631,11 +629,11 @@ async def router(update: Update, ctx):
         code = names[0] if names else str(uid)
         link = f"https://t.me/{ctx.bot.username}?start={code}"
         await show(
-            r"Если вдруг у тебя закончились бонусы, не переживай! "
-            r"Предложи этого бота друзьям и получи дополнительные анализы.\n\n"
-            f"🔗 Твоя ссылка: `{link}`\n\n"
-            f"За каждого нового пользователя — *+{BONUS_REF} анализа*. "
-            "Перешедшие по именной ссылке получают 2 анализа.",
+            "Если вдруг у тебя закончились бонусы, не переживай!\n"
+            "Предложи этого бота друзьям и получи дополнительные анализы.\n"
+            f"🔗 Твоя ссылка: `{link}`\n"
+            f"За каждого нового пользователя — *+{BONUS_REF} анализа*.\n"
+            "За каждого приглашённого пользователя ты получаешь 2 анализа.",
             update,
             ctx,
             kb_back(),
@@ -786,9 +784,7 @@ async def reminder1(ctx: ContextTypes.DEFAULT_TYPE):
     credits = get_credits(uid, ADMIN_IDS)
     if credits > 0:
         try:
-            await ctx.bot.send_message(
-                uid, REMINDER_TXT1, reply_markup=kb_main(uid, credits)
-            )
+            await ctx.bot.send_message(uid, REMINDER_TXT1)
         except BadRequest:
             pass
 
@@ -797,9 +793,7 @@ async def reminder2(ctx: ContextTypes.DEFAULT_TYPE):
     credits = get_credits(uid, ADMIN_IDS)
     if credits > 0:
         try:
-            await ctx.bot.send_message(
-                uid, REMINDER_TXT2, reply_markup=kb_main(uid, credits)
-        )
+            await ctx.bot.send_message(uid, REMINDER_TXT2)
         except BadRequest:
             pass
 
