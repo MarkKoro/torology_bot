@@ -117,6 +117,7 @@ PACKS_STARS = {2: 135, 5: 290, 10: 530}
 BONUS_REF = 2
 REMIND1_SEC = 24 * 3600
 REMIND2_SEC = 72 * 3600
+TG_LIMIT = 4096
 
 
 # ── Файлы карт ───────────────────────────────────────
@@ -383,6 +384,37 @@ def kb_cards(options: list[dict], step: int) -> Mk:
     return Mk(rows)
 
 
+def split_chunks(text: str, limit: int = TG_LIMIT) -> list[str]:
+    parts, cur = [], []
+    cur_len = 0
+    for para in text.split("\n\n"):
+        if cur_len + len(para) + 2 > limit:
+            parts.append("\n\n".join(cur))
+            cur, cur_len = [para], len(para)
+        else:
+            cur.append(para)
+            cur_len += len(para) + 2
+    if cur:
+        parts.append("\n\n".join(cur))
+    return parts
+
+
+async def send_plain(chat, text: str, **kwargs):
+    # никаких parse_mode для текста модели
+    for chunk in split_chunks(text):
+        await chat.send_message(chunk, **kwargs)
+
+
+async def safe_send_report(chat, text_md: str, kb):
+    try:
+        await chat.send_message(text_md, parse_mode="Markdown", reply_markup=kb)
+    except BadRequest as e:
+        if "Can't parse entities" in str(e):
+            await send_plain(chat, text_md, reply_markup=kb)
+        else:
+            raise
+
+
 # ── helper: активное меню ───────────────────────────
 async def set_active_menu(ctx, chat_id: int, message_id: int):
     old = ctx.user_data.pop("menu_id", None)
@@ -597,11 +629,7 @@ async def router(update: Update, ctx):
                 await proc.delete()
             except BadRequest:
                 pass
-            await update.effective_chat.send_message(
-                report + FOOTER_TAROT,
-                parse_mode="Markdown",
-                reply_markup=kb_home(),
-            )
+            await safe_send_report(update.effective_chat, report + FOOTER_TAROT, kb_home())
             schedule_reminders(ctx, uid)
         else:
             ctx.user_data["step"] = step + 1
@@ -731,11 +759,7 @@ async def send_numerology(update: Update, ctx, uid: int):
         pass
     if label:
         report = f"*{label}*\n\n" + report
-    await update.effective_chat.send_message(
-        report + FOOTER,
-        parse_mode="Markdown",
-        reply_markup=kb_home(),
-    )
+    await safe_send_report(update.effective_chat, report + FOOTER, kb_home())
     schedule_reminders(ctx, uid)
 
 
