@@ -220,6 +220,23 @@ def parse_date(text: str) -> str | None:
         return None
     return f"{int(d):02d}.{int(mnt):02d}.{y}"
 
+def _digital_root(dob: str) -> int:
+    digits = [int(c) for c in re.findall(r"\d", dob)]
+    n = sum(digits)
+    while n > 9:
+        n = sum(int(c) for c in str(n))
+    return n
+
+def compatibility_label(dob1: str, dob2: str) -> str:
+    d1 = _digital_root(dob1)
+    d2 = _digital_root(dob2)
+    diff = abs(d1 - d2) % 9
+    if diff % 3 == 0:
+        return "Судьба"
+    elif diff % 3 == 1:
+        return "Карма"
+    return "Зеркало"
+
 def new_session_deck(uid: int, kind: str) -> list[dict]:
     import random, hashlib
     seed_text = f"{uid}:{dt.date.today().isoformat()}:{kind}"
@@ -472,7 +489,7 @@ async def router(update: Update, ctx):
             return
         ctx.user_data.clear()
         ctx.user_data["mode"] = "num_dob1"
-        m = await show("Введите дату рождения (ДД.ММ.ГГГГ)", update, ctx, kb_back(), menu=False)
+        m = await show("Укажите вашу дату рождения (ДД.ММ.ГГГГ)", update, ctx, kb_back(), menu=False)
         ctx.user_data["prompt_id"] = m.message_id
     elif data == "tarot":
         if credits <= 0:
@@ -614,9 +631,13 @@ async def router(update: Update, ctx):
                 await ctx.bot.delete_message(update.effective_chat.id, pid)
             except BadRequest:
                 pass
-        if ctx.user_data["topic"] == "Отношения":
+        if ctx.user_data["topic"] in ("Отношения", "Семья"):
             ctx.user_data["mode"] = "num_dob2"
-            m = await show("Введите дату второго человека (ДД.ММ.ГГГГ)", update, ctx, kb_back(), menu=False)
+            if ctx.user_data["topic"] == "Отношения":
+                txt = "Введите дату рождения второй половинки (ДД.ММ.ГГГГ)"
+            else:
+                txt = "Введите дату рождения вашего члена семьи (ДД.ММ.ГГГГ)"
+            m = await show(txt, update, ctx, kb_back(), menu=False)
             ctx.user_data["prompt_id"] = m.message_id
         else:
             await send_numerology(update, ctx, uid)
@@ -640,7 +661,7 @@ async def router(update: Update, ctx):
         )
     elif data == "back":
         ctx.user_data.clear()
-        await show_main(update, ctx, uid, delete_prev=False)
+        await show_main(update, ctx, uid)
     elif data.startswith("buy_"):
         _, qty, method = data.split("_")
         qty = int(qty)
@@ -695,6 +716,7 @@ async def send_numerology(update: Update, ctx, uid: int):
     loop = asyncio.get_running_loop()
     variant = "B" if uid % 2 else "A"
     report = await loop.run_in_executor(None, build_numerology, dob1, gender, topic, dob2, variant)
+    label = compatibility_label(dob1, dob2) if dob2 else None
     log_event(f"num{variant}", uid)
     log_ab_event(uid, "num", variant, len(report))
     dec_credit(uid, ADMIN_IDS)
@@ -702,6 +724,8 @@ async def send_numerology(update: Update, ctx, uid: int):
         await proc.delete()
     except BadRequest:
         pass
+    if label:
+        report = f"*{label}*\n\n" + report
     await update.effective_chat.send_message(
         report + FOOTER,
         parse_mode="Markdown",
