@@ -111,9 +111,9 @@ REMINDER_TXT1 = "Привет, ну как сработал ли твой про
 REMINDER_TXT2 = "Ну что, проверим, что ждёт тебя сегодня?"
 
 # Цены пакетов (в копейках) с учётом повышенного тарифа
-PACKS_RUB = {2: 150_00, 5: 300_00, 10: 584_00}
+PACKS_RUB = {2: 240_00, 5: 520_00, 10: 950_00}
 # Стоимость пакетов в звёздах с округлением
-PACKS_STARS = {2: 83, 5: 165, 10: 330}
+PACKS_STARS = {2: 135, 5: 290, 10: 530}
 BONUS_REF = 2
 REMIND1_SEC = 24 * 3600
 REMIND2_SEC = 72 * 3600
@@ -308,16 +308,16 @@ def kb_pay():
     return Mk(
         [
             [
-                Btn("2 анализа – 150 ₽", callback_data="buy_2_card"),
-                Btn("2 анализа – 83 ⭐", callback_data="buy_2_star"),
+                Btn("2 анализа – 240 ₽", callback_data="buy_2_card"),
+                Btn("2 анализа – 135 ⭐", callback_data="buy_2_star"),
             ],
             [
-                Btn("5 анализов – 300 ₽", callback_data="buy_5_card"),
-                Btn("5 анализов – 165 ⭐", callback_data="buy_5_star"),
+                Btn("5 анализов – 520 ₽", callback_data="buy_5_card"),
+                Btn("5 анализов – 290 ⭐", callback_data="buy_5_star"),
             ],
             [
-                Btn("10 анализов – 584 ₽", callback_data="buy_10_card"),
-                Btn("10 анализов – 330 ⭐", callback_data="buy_10_star"),
+                Btn("10 анализов – 950 ₽", callback_data="buy_10_card"),
+                Btn("10 анализов – 530 ⭐", callback_data="buy_10_star"),
             ],
             [Btn("← Назад", callback_data="back")],
         ]
