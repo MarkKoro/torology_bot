@@ -316,7 +316,7 @@ def kb_back():
 
 
 def kb_home():
-    return Mk([[Btn("↩️ В меню", callback_data="back")]])
+    return Mk([[Btn("↩️ В меню", callback_data="home")]])
 
 
 def kb_pay():
@@ -659,6 +659,11 @@ async def router(update: Update, ctx):
             ctx,
             kb_back(),
         )
+    elif data == "home":
+        with contextlib.suppress(BadRequest):
+            await q.message.edit_reply_markup(None)
+        ctx.user_data.clear()
+        await show_main(update, ctx, uid, delete_prev=False)
     elif data == "back":
         ctx.user_data.clear()
         await show_main(update, ctx, uid)
