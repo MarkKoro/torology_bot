@@ -73,27 +73,29 @@ ADMIN_IDS = {int(x) for x in os.getenv("ADMINS", "").split(",") if x}
 
 # ── Текст ────────────────────────────────────────────
 GREETING = (
-    "👋 *Добро пожаловать в TaroNumeBot*\n"
-    "🔢 Проводим нумерологический анализ.\n"
+    "👋 Здравствуй, путник! Я к твоим услугам.\n"
+    "🔢 Провожу нумерологический анализ.\n"
     "🗓️ Укажи дату рождения и узнай скрытый потенциал.\n"
-    "💡 Расскажем о сильных и слабых сторонах.\n"
-    "🌟 Поделимся прогнозом на будущее.\n"
-    "│\n"
-    "🃏 Делаем таро-прогноз по выбранным картам.\n"
-    "🔮 Толкуем выпавшие арканы и даём совет.\n"
-    "📈 Помогаем разобраться в ситуации.\n"
-    "✨ Показываем возможные пути развития.\n"
+    "💡 Расскажу о сильных и слабых сторонах.\n"
+    "🌟 Поделюсь прогнозом на будущее.\n"
+    "\n"
+    "🃏 Делаю расклад Таро по выбранным картам.\n"
+    "🔮 Толкую выпавшие арканы и даю совет.\n"
+    "📈 Помогаю разобраться в ситуации.\n"
+    "✨ Показываю возможные пути развития.\n"
     "_Первый анализ бесплатен._ Пригласи друга и получи +2 анализа."
 )
 HOW_IT_WORKS = (
     "*Как это работает?*\n"
     "🔢 Нумерология раскрывает потенциал по дате рождения.\n"
     "✨ Цифры подсказывают сильные и слабые стороны.\n"
-    "🚀 Мы анализируем сочетания и даём прогноз.\n"
+    "🚀 Я анализирую сочетания и даю прогноз.\n"
     "💡 Получаешь практичные рекомендации.\n"
+    "\n"
     "🃏 Таро отражает текущие энергии выбранных карт.\n"
-    "⚡ Арканы показывают скрытые влияния и пути решения.\n"
-    "🎯 Мы читаем расклад и подсказываем действия.\n"
+    "⚡️ Арканы показывают скрытые влияния и пути решения.\n"
+    "🎯 Я читаю расклад и подсказываю действия.\n"
+    "✨ Показываю возможные пути развития.\n"
     "🏁 Итог помогает выбрать верное направление."
 )
 FOOTER = (
@@ -480,7 +482,7 @@ async def start(update: Update, ctx):
                 total = get_credits(parent, ADMIN_IDS)
                 await ctx.bot.send_message(
                     parent,
-                    f"🎉 {link} (ID {uid}) присоединился по вашей ссылке!\n"
+                    f"🎉 {link} (ID {uid}) присоединился по твоей ссылке!\n"
                     f"+{BONUS_REF} анализа начислено. Теперь доступно: {total}.",
                     parse_mode=ParseMode.HTML,
                 )
@@ -521,7 +523,7 @@ async def router(update: Update, ctx):
             return
         ctx.user_data.clear()
         ctx.user_data["mode"] = "num_dob1"
-        m = await show("Укажите вашу дату рождения (ДД.ММ.ГГГГ)", update, ctx, kb_back(), menu=False)
+        m = await show("Укажи свою дату рождения (ДД.ММ.ГГГГ)", update, ctx, kb_back(), menu=False)
         ctx.user_data["prompt_id"] = m.message_id
     elif data == "tarot":
         if credits <= 0:
@@ -614,7 +616,7 @@ async def router(update: Update, ctx):
             ctx.user_data.pop("last_card_msg_id", None)
 
         if step + 1 >= spread:
-            proc = await update.effective_chat.send_message("⌛ Ваш расклад готовится, подождите...")
+            proc = await update.effective_chat.send_message("⌛ Твой расклад готовится, подожди...")
             cards = [next(c for c in deck if c["id"] == x) for x in ctx.user_data["picked"]]
             dob = ctx.user_data.get("dob1")
             gender = ctx.user_data.get("gender")
@@ -623,13 +625,27 @@ async def router(update: Update, ctx):
             report = await loop.run_in_executor(None, build_tarot, cards, spread, dob, gender, variant)
             log_event(f"tarot{variant}", uid)
             log_ab_event(uid, "tarot", variant, len(report))
-            dec_credit(uid, ADMIN_IDS)
             ctx.user_data.clear()
-            try:
+            with contextlib.suppress(BadRequest):
                 await proc.delete()
-            except BadRequest:
-                pass
-            await safe_send_report(update.effective_chat, report + FOOTER_TAROT, kb_home())
+
+            try:
+                await safe_send_report(
+                    update.effective_chat,
+                    report + FOOTER_TAROT,
+                    kb_home(),
+                )
+            except Exception:
+                await show(
+                    "⚠️ Временно нет связи. Попробуйте ещё раз позже.",
+                    update,
+                    ctx,
+                    kb_home(),
+                    menu=False,
+                )
+                return
+
+            dec_credit(uid, ADMIN_IDS)
             schedule_reminders(ctx, uid)
         else:
             ctx.user_data["step"] = step + 1
@@ -643,7 +659,7 @@ async def router(update: Update, ctx):
                 pass
         if ctx.user_data.get("mode") == "num_gender":
             ctx.user_data["mode"] = "num_topic"
-            m = await show("Выберите область:", update, ctx, kb_topic())
+            m = await show("Выбери область:", update, ctx, kb_topic())
             ctx.user_data["prompt_id"] = m.message_id
     elif data.startswith("topic_"):
         topic_map = {
@@ -662,9 +678,9 @@ async def router(update: Update, ctx):
         if ctx.user_data["topic"] in ("Отношения", "Семья"):
             ctx.user_data["mode"] = "num_dob2"
             if ctx.user_data["topic"] == "Отношения":
-                txt = "Введите дату рождения второй половинки (ДД.ММ.ГГГГ)"
+                txt = "Введи дату рождения второй половинки (ДД.ММ.ГГГГ)"
             else:
-                txt = "Введите дату рождения вашего члена семьи (ДД.ММ.ГГГГ)"
+                txt = "Введи дату рождения своего члена семьи (ДД.ММ.ГГГГ)"
             m = await show(txt, update, ctx, kb_back(), menu=False)
             ctx.user_data["prompt_id"] = m.message_id
         else:
@@ -745,21 +761,38 @@ async def send_numerology(update: Update, ctx, uid: int):
     dob2 = ctx.user_data.pop("dob2", None)
     gender = ctx.user_data.pop("gender", None)
     topic = ctx.user_data.pop("topic", None)
-    proc = await update.effective_chat.send_message("⌛ Ваш запрос обрабатывается, подождите...")
+    proc = await update.effective_chat.send_message("⌛ Твой запрос обрабатывается, подожди.")
     loop = asyncio.get_running_loop()
     variant = "B" if uid % 2 else "A"
     report = await loop.run_in_executor(None, build_numerology, dob1, gender, topic, dob2, variant)
     label = compatibility_label(dob1, dob2) if dob2 else None
     log_event(f"num{variant}", uid)
     log_ab_event(uid, "num", variant, len(report))
-    dec_credit(uid, ADMIN_IDS)
-    try:
+
+    # Убираем "обрабатывается"
+    with contextlib.suppress(BadRequest):
         await proc.delete()
-    except BadRequest:
-        pass
-    if label:
-        report = f"*{label}*\n\n" + report
-    await safe_send_report(update.effective_chat, report + FOOTER, kb_home())
+
+    # 1) Пытаемся доставить
+    try:
+        await safe_send_report(
+            update.effective_chat,
+            (f"*{label}*\n\n" if label else "") + report + FOOTER,
+            kb_home(),
+        )
+    except Exception:
+        # 2) Если не ушло — покажем вежливую плашку и выходим БЕЗ списания
+        await show(
+            "⚠️ Временно нет связи. Попробуйте ещё раз позже.",
+            update,
+            ctx,
+            kb_home(),
+            menu=False,
+        )
+        return
+
+    # 3) Доставили успешно — теперь списываем
+    dec_credit(uid, ADMIN_IDS)
     schedule_reminders(ctx, uid)
 
 
@@ -768,7 +801,7 @@ async def handle_text(update: Update, ctx):
     if mode == "num_dob1":
         dob = parse_date(update.message.text)
         if not dob:
-            await update.message.reply_text("Введите дату в формате ДД.ММ.ГГГГ")
+            await update.message.reply_text("Введи дату в формате ДД.ММ.ГГГГ")
             return
         pid = ctx.user_data.pop("prompt_id", None)
         if pid:
@@ -778,12 +811,12 @@ async def handle_text(update: Update, ctx):
                 pass
         ctx.user_data["dob1"] = dob
         ctx.user_data["mode"] = "num_gender"
-        m = await update.message.reply_text("Укажите пол:", reply_markup=kb_gender())
+        m = await update.message.reply_text("Укажи пол:", reply_markup=kb_gender())
         ctx.user_data["prompt_id"] = m.message_id
     elif mode == "num_dob2":
         dob = parse_date(update.message.text)
         if not dob:
-            await update.message.reply_text("Введите дату в формате ДД.ММ.ГГГГ")
+            await update.message.reply_text("Введи дату в формате ДД.ММ.ГГГГ")
             return
         pid = ctx.user_data.pop("prompt_id", None)
         if pid:
@@ -901,7 +934,7 @@ async def grant(update: Update, ctx):
         try:
             await ctx.bot.send_message(
                 uid,
-                f"🎁 Вам начислено {qty} анализов от администратора.\nДоступно: {total}.",
+                f"🎁 Тебе начислено {qty} анализов от администратора.\nДоступно: {total}.",
             )
         except BadRequest:
             pass
