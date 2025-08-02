@@ -487,12 +487,12 @@ async def start(update: Update, ctx):
 
     first_visit = is_new_user(uid)
 
-    alias_used = False
+    referred = False
     if args:
         ref = args[0]
         parent = int(ref) if ref.isdigit() else alias_owner(ref)
-        alias_used = not ref.isdigit() and parent
         if parent and set_referral(uid, parent):
+            referred = True
             add_credits(parent, BONUS_REF)
             try:
                 name = html.escape(update.effective_user.full_name)
@@ -509,9 +509,9 @@ async def start(update: Update, ctx):
 
     log_event("start", uid)
 
-    # 1-й визит → автоматически +1, по реферальному имени +2
+    # 1-й визит → автоматически +2, по реферальной ссылке +4
     if first_visit:
-        add_credits(uid, 2 if alias_used else 1)
+        add_credits(uid, 4 if referred else 2)
 
     await show_main(update, ctx, uid)
 
