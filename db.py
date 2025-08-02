@@ -135,18 +135,16 @@ def add_credits(uid: int, qty: int):
         DB.execute("UPDATE users SET credits = credits + ? WHERE id=?", (qty, uid))
 
 
-def dec_credit(uid: int, admins: Iterable[int] = ()):
-    "-1 кредит (если не админ); < 0 не уходим"
+def dec_credit(uid: int, admins: Iterable[int] = (), qty: int = 1):
+    "Списать `qty` кредитов (если не админ); < 0 не уходим"
     if uid in admins:
+        return
+    if qty <= 0:
         return
     with _LOCK:
         DB.execute(
-            """UPDATE users
-                      SET credits = CASE
-                                        WHEN credits>0 THEN credits-1
-                                        ELSE 0 END
-                      WHERE id=?""",
-            (uid,),
+            "UPDATE users SET credits = MAX(credits - ?, 0) WHERE id=?",
+            (qty, uid),
         )
 
 
