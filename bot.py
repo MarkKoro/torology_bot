@@ -83,7 +83,7 @@ GREETING = (
     "🔮 Толкую выпавшие арканы и даю совет.\n"
     "📈 Помогаю разобраться в ситуации.\n"
     "✨ Показываю возможные пути развития.\n"
-    "_Первый анализ бесплатен._ Пригласи друга и получи +2 анализа."
+    "_Первый анализ бесплатен._ Пригласи друга и получи +2 балла."
 )
 HOW_IT_WORKS = (
     "*Как это работает?*\n"
@@ -113,10 +113,26 @@ REMINDER_TXT1 = "Привет, ну как сработал ли твой про
 REMINDER_TXT2 = "Ну что, проверим, что ждёт тебя сегодня?"
 
 # Цены пакетов (в копейках) с учётом повышенного тарифа
-PACKS_RUB = {2: 240_00, 5: 520_00, 10: 950_00}
-# Стоимость пакетов в звёздах с округлением
-PACKS_STARS = {2: 135, 5: 290, 10: 530}
+PACKS_RUB = {3: 240_00, 8: 550_00, 15: 950_00}
+# Стоимость пакетов в звёздах (1 ⭐ = 1.79 ₽)
+PACKS_STARS = {3: 134, 8: 307, 15: 530}
 BONUS_REF = 2
+
+# Стоимость услуг в баллах
+COST_NUM = 2
+COST_SPREAD = {1: 1, 3: 2, 5: 3}
+
+
+def plural_ball(n: int) -> str:
+    n = abs(n) % 100
+    if 10 < n < 20:
+        return "баллов"
+    n = n % 10
+    if n == 1:
+        return "балл"
+    if 1 < n < 5:
+        return "балла"
+    return "баллов"
 REMIND1_SEC = 24 * 3600
 REMIND2_SEC = 72 * 3600
 TG_LIMIT = 4096
@@ -290,7 +306,7 @@ class TypingCtx:
 async def show_main(update: Update, ctx, uid: int | None = None, *, delete_prev: bool = True):
     uid = uid or update.effective_user.id
     credits = get_credits(uid, ADMIN_IDS)
-    text = f"{GREETING}\n\nДоступно: *{credits}* анализов."
+    text = f"{GREETING}\n\nДоступно: *{credits}* {plural_ball(credits)}."
     m = await show(text, update, ctx, kb_main(uid, credits), delete_prev=delete_prev)
     old = get_menu_msg(uid)
     if old and old != m.message_id:
@@ -307,7 +323,7 @@ def kb_main(uid: int, credits: int) -> Mk:
             [Btn("🔢 Нумерология", callback_data="num")],
             [Btn("🃏 Таро", callback_data="tarot")],
             [Btn("📑 Как это работает?", callback_data="how")],
-            [Btn(f"💳 Пополнить баланс ({credits})", callback_data="pay")],
+            [Btn(f"💳 Пополнить баланс ({credits} {plural_ball(credits)})", callback_data="pay")],
             [Btn("👥 Пригласи друга", callback_data="ref")],
             [Btn("🛟 Техподдержка", url=f"https://t.me/{SUPPORT.lstrip('@')}")],
         ]
@@ -326,16 +342,16 @@ def kb_pay():
     return Mk(
         [
             [
-                Btn("2 анализа – 240 ₽", callback_data="buy_2_card"),
-                Btn("2 анализа – 135 ⭐", callback_data="buy_2_star"),
+                Btn("3 балла – 240 ₽", callback_data="buy_3_card"),
+                Btn("3 балла – 134 ⭐", callback_data="buy_3_star"),
             ],
             [
-                Btn("5 анализов – 520 ₽", callback_data="buy_5_card"),
-                Btn("5 анализов – 290 ⭐", callback_data="buy_5_star"),
+                Btn("8 баллов – 550 ₽", callback_data="buy_8_card"),
+                Btn("8 баллов – 307 ⭐", callback_data="buy_8_star"),
             ],
             [
-                Btn("10 анализов – 950 ₽", callback_data="buy_10_card"),
-                Btn("10 анализов – 530 ⭐", callback_data="buy_10_star"),
+                Btn("15 баллов – 950 ₽", callback_data="buy_15_card"),
+                Btn("15 баллов – 530 ⭐", callback_data="buy_15_star"),
             ],
             [Btn("← Назад", callback_data="back")],
         ]
@@ -343,7 +359,9 @@ def kb_pay():
 
 
 def kb_topup(credits: int = 0):
-    return Mk([[Btn(f"💳 Пополнить баланс ({credits})", callback_data="pay")]])
+    return Mk(
+        [[Btn(f"💳 Пополнить баланс ({credits} {plural_ball(credits)})", callback_data="pay")]]
+    )
 
 
 def kb_gender():
@@ -370,9 +388,9 @@ def kb_topic():
 def kb_spread():
     return Mk(
         [
-            [Btn("1 карта", callback_data="spread_1")],
-            [Btn("3 карты", callback_data="spread_3")],
-            [Btn("5 карт", callback_data="spread_5")],
+            [Btn("(1 балл) 1 карта", callback_data="spread_1")],
+            [Btn("(2 балла) 3 карты", callback_data="spread_3")],
+            [Btn("(3 балла) 5 карт", callback_data="spread_5")],
             [Btn("← Назад", callback_data="back")],
         ]
     )
@@ -483,7 +501,7 @@ async def start(update: Update, ctx):
                 await ctx.bot.send_message(
                     parent,
                     f"🎉 {link} (ID {uid}) присоединился по твоей ссылке!\n"
-                    f"+{BONUS_REF} анализа начислено. Теперь доступно: {total}.",
+                    f"+{BONUS_REF} {plural_ball(BONUS_REF)} начислено. Теперь доступно: {total} {plural_ball(total)}.",
                     parse_mode=ParseMode.HTML,
                 )
             except NetworkError:
@@ -512,9 +530,9 @@ async def router(update: Update, ctx):
     credits = get_credits(uid, ADMIN_IDS)
 
     if data == "num":
-        if credits <= 0:
+        if credits < COST_NUM:
             await show(
-                "❌ Проверок нет. Пополни баланс.",
+                "❌ Недостаточно баллов. Пополни баланс.",
                 update,
                 ctx,
                 kb_topup(credits),
@@ -523,12 +541,16 @@ async def router(update: Update, ctx):
             return
         ctx.user_data.clear()
         ctx.user_data["mode"] = "num_dob1"
-        m = await show("Укажи свою дату рождения (ДД.ММ.ГГГГ)", update, ctx, kb_back(), menu=False)
+        msg = (
+            f"Стоимость: {COST_NUM} {plural_ball(COST_NUM)}.\n"
+            "Укажи свою дату рождения (ДД.ММ.ГГГГ)"
+        )
+        m = await show(msg, update, ctx, kb_back(), menu=False)
         ctx.user_data["prompt_id"] = m.message_id
     elif data == "tarot":
-        if credits <= 0:
+        if credits < 1:
             await show(
-                "❌ Проверок нет. Пополни баланс.",
+                "❌ Недостаточно баллов. Пополни баланс.",
                 update,
                 ctx,
                 kb_topup(credits),
@@ -548,6 +570,16 @@ async def router(update: Update, ctx):
         )
     elif data.startswith("spread_"):
         spread = int(data.split("_", 1)[1])
+        cost = COST_SPREAD[spread]
+        if credits < cost:
+            await show(
+                "❌ Недостаточно баллов. Пополни баланс.",
+                update,
+                ctx,
+                kb_topup(credits),
+                menu=False,
+            )
+            return
         ctx.user_data["mode"] = "tarot_pick"
         ctx.user_data["spread"] = spread
         ctx.user_data["deck"] = new_session_deck(uid, str(spread))
@@ -645,7 +677,7 @@ async def router(update: Update, ctx):
                 )
                 return
 
-            dec_credit(uid, ADMIN_IDS)
+            dec_credit(uid, ADMIN_IDS, COST_SPREAD[spread])
             schedule_reminders(ctx, uid)
         else:
             ctx.user_data["step"] = step + 1
@@ -694,11 +726,11 @@ async def router(update: Update, ctx):
         code = names[0] if names else str(uid)
         link = f"https://t.me/{ctx.bot.username}?start={code}"
         await show(
-            "Если вдруг у тебя закончились бонусы, не переживай!\n"
-            "Предложи этого бота друзьям и получи дополнительные анализы.\n"
+            "Если вдруг у тебя закончились баллы, не переживай!\n"
+            "Предложи этого бота друзьям и получи дополнительные баллы.\n"
             f"🔗 Твоя ссылка: `{link}`\n"
-            f"За каждого нового пользователя — *+{BONUS_REF} анализа*.\n"
-            "За каждого приглашённого пользователя ты получаешь 2 анализа.",
+            f"За каждого нового пользователя — *+{BONUS_REF} {plural_ball(BONUS_REF)}*.\n"
+            f"За каждого приглашённого пользователя ты получаешь {BONUS_REF} {plural_ball(BONUS_REF)}.",
             update,
             ctx,
             kb_back(),
@@ -732,12 +764,12 @@ async def router(update: Update, ctx):
 
         inv = await ctx.bot.send_invoice(
             chat_id=q.message.chat_id,
-            title=f"{qty} анализа",
-            description="Пакет анализов",
+            title=f"{qty} {plural_ball(qty)}",
+            description="Пакет баллов",
             payload=f"buy_{qty}_{method}",
             provider_token=token,
             currency=currency,
-            prices=[LabeledPrice(f"{qty} анализа", price)],
+            prices=[LabeledPrice(f"{qty} {plural_ball(qty)}", price)],
             reply_markup=kb,
         )
         ctx.user_data["inv_msg"] = inv.message_id
@@ -792,7 +824,7 @@ async def send_numerology(update: Update, ctx, uid: int):
         return
 
     # 3) Доставили успешно — теперь списываем
-    dec_credit(uid, ADMIN_IDS)
+    dec_credit(uid, ADMIN_IDS, COST_NUM)
     schedule_reminders(ctx, uid)
 
 
@@ -853,7 +885,7 @@ async def paid(update: Update, ctx):
         except BadRequest:
             pass
     await show(
-        f"✅ Оплата прошла!\n\nДоступно: *{credits}* анализов.\n",
+        f"✅ Оплата прошла!\n\nДоступно: *{credits}* {plural_ball(credits)}.\n",
         update,
         ctx,
         kb_main(uid, credits),
@@ -934,7 +966,7 @@ async def grant(update: Update, ctx):
         try:
             await ctx.bot.send_message(
                 uid,
-                f"🎁 Тебе начислено {qty} анализов от администратора.\nДоступно: {total}.",
+                f"🎁 Тебе начислено {qty} {plural_ball(qty)} от администратора.\nДоступно: {total} {plural_ball(total)}.",
             )
         except BadRequest:
             pass
@@ -988,7 +1020,7 @@ async def profile(update: Update, ctx):
     kb = Mk([[Btn("Скопировать", switch_inline_query=link)]])
     text = (
         f"<b>{name}</b>\n"
-        f"Баланс: {credits}\n"
+        f"Баланс: {credits} {plural_ball(credits)}\n"
         f"Ответов получено: {answers}\n"
         f"Привёл друзей: {refs}\n"
         f"<code>{link}</code>"
