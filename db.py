@@ -315,6 +315,20 @@ def referral_payment_stats() -> list[tuple[int, str, int, int]]:
     return [(r[0], r[1], r[2], r[3]) for r in rows]
 
 
+def referral_payment_stats_user(uid: int) -> list[tuple[str, int, int]]:
+    """Статистика оплат по конкретному пригласителю (метод, пакет, количество)."""
+    with _LOCK:
+        rows = DB.execute(
+            """SELECT p.method, p.qty, COUNT(*)
+                     FROM payments p
+                     JOIN users u ON u.id=p.uid
+                     WHERE u.parent=?
+                     GROUP BY p.method, p.qty""",
+            (uid,),
+        ).fetchall()
+    return [(r[0], r[1], r[2]) for r in rows]
+
+
 def payment_stats() -> list[tuple[str, int, int]]:
     """Общая статистика оплат (метод, пакет, количество)."""
     with _LOCK:

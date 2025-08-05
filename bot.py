@@ -50,6 +50,7 @@ from db import (
     aliases_for,
     log_payment,
     referral_payment_stats,
+    referral_payment_stats_user,
     payment_stats,
     unique_payers,
     referral_count,
@@ -1028,6 +1029,21 @@ async def profile(update: Update, ctx):
     await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
 
 
+async def my_referrals(update: Update, ctx):
+    uid = update.effective_user.id
+    if not aliases_for(uid):
+        await update.message.reply_text("Сначала создай реферальное имя командой /alias")
+        return
+    refs = referral_count(uid)
+    payments = referral_payment_stats_user(uid)
+    rub = (
+        sum(PACKS_RUB.get(q, 0) * c for m, q, c in payments if m == "card") // 100
+    )
+    star = sum(PACKS_STARS.get(q, 0) * c for m, q, c in payments if m != "card")
+    text = f"Пришло: {refs}\nОплачено: {rub} ₽, {star} ⭐"
+    await update.message.reply_text(text)
+
+
 async def stats(update: Update, ctx):
     if update.effective_user.id not in ADMIN_IDS:
         return
@@ -1045,8 +1061,8 @@ async def stats(update: Update, ctx):
     pay_users = unique_payers()
     cnt_card = sum(c for m, q, c in payments if m == "card")
     cnt_star = sum(c for m, q, c in payments if m != "card")
-    total_rub = sum(PACKS_RUB[q] * c for m, q, c in payments if m == "card") // 100
-    total_star = sum(PACKS_STARS[q] * c for m, q, c in payments if m != "card")
+    total_rub = sum(PACKS_RUB.get(q, 0) * c for m, q, c in payments if m == "card") // 100
+    total_star = sum(PACKS_STARS.get(q, 0) * c for m, q, c in payments if m != "card")
     top_method = "₽" if cnt_card >= cnt_star else "⭐"
 
     rows = [
@@ -1088,9 +1104,9 @@ async def stats_referrals(update: Update, ctx):
     star = {}
     for uid, method, qty, cnt in payments:
         if method == "card":
-            rub[uid] = rub.get(uid, 0) + PACKS_RUB[qty] * cnt
+            rub[uid] = rub.get(uid, 0) + PACKS_RUB.get(qty, 0) * cnt
         else:
-            star[uid] = star.get(uid, 0) + PACKS_STARS[qty] * cnt
+            star[uid] = star.get(uid, 0) + PACKS_STARS.get(qty, 0) * cnt
 
     table = ["|ID|Имя|Кол.|₽|⭐|", "|---|---|---:|---:|---:|"]
     for uid, cnt in refs:
@@ -1283,6 +1299,7 @@ def main():
             CommandHandler("broadcast", broadcast),
             CommandHandler("alias", set_alias_cmd),
             CommandHandler("profile", profile),
+            CommandHandler("refs", my_referrals),
             CommandHandler("stats", stats),
             CommandHandler("stats_referrals", stats_referrals),
             CommandHandler("ab_stats", ab_stats),
