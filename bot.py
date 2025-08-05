@@ -9,6 +9,7 @@ from telegram import (
     InlineKeyboardMarkup as Mk,
     LabeledPrice,
     Message,
+    CopyTextButton,
 )
 from telegram.constants import ParseMode
 from telegram.helpers import escape_markdown
@@ -335,6 +336,16 @@ def kb_back():
     return Mk([[Btn("← Назад", callback_data="back")]])
 
 
+def kb_ref(link: str) -> Mk:
+    return Mk(
+        [
+            [Btn("📋 Скопировать ссылку", copy_text=CopyTextButton(link))],
+            [Btn("📤 Отправить другу", url=f"https://t.me/share/url?url={link}")],
+            [Btn("◀️ Назад", callback_data="back")],
+        ]
+    )
+
+
 def kb_home():
     return Mk([[Btn("↩️ В меню", callback_data="home")]])
 
@@ -458,10 +469,13 @@ async def show(
     delete_prev: bool = True,
 ) -> Message:
     if update.callback_query and delete_prev:
-        with contextlib.suppress(BadRequest):
-            await update.callback_query.message.delete()
-
-    m = await update.effective_chat.send_message(text, reply_markup=kb, parse_mode=pm)
+        q = update.callback_query
+        try:
+            m = await q.message.edit_text(text, reply_markup=kb, parse_mode=pm)
+        except BadRequest:
+            m = await update.effective_chat.send_message(text, reply_markup=kb, parse_mode=pm)
+    else:
+        m = await update.effective_chat.send_message(text, reply_markup=kb, parse_mode=pm)
 
     if menu:
         await set_active_menu(ctx, m.chat_id, m.message_id)
@@ -734,7 +748,7 @@ async def router(update: Update, ctx):
             f"За каждого приглашённого пользователя ты получаешь {BONUS_REF} {plural_ball(BONUS_REF)}.",
             update,
             ctx,
-            kb_back(),
+            kb_ref(link),
         )
     elif data == "home":
         with contextlib.suppress(BadRequest):
@@ -999,7 +1013,9 @@ async def set_alias_cmd(update: Update, ctx):
         return
     if add_alias(uid, alias):
         link = f"https://t.me/{ctx.bot.username}?start={alias}"
-        await update.message.reply_text(f"🔗 Твоя ссылка: {link}")
+        await update.message.reply_text(
+            f"🔗 Твоя ссылка: {link}", reply_markup=kb_ref(link)
+        )
     else:
         await update.message.reply_text("❌ Имя занято.")
 
