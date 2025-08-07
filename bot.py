@@ -1068,18 +1068,39 @@ async def stats(update: Update, ctx):
     week = count_new_users(7)
     month = count_new_users(30)
     events = event_stats()
-    scans = {scn: events.get(f"ok_{scn}", 0) for scn in ("colleague", "romance", "sales", "common", "tarot")}
-    total = sum(scans.values())
+    num_cnt = events.get("numA", 0) + events.get("numB", 0)
+    tarot_cnt = events.get("tarotA", 0) + events.get("tarotB", 0)
+    num_users = unique_event_users_like("num")
+    tarot_users = unique_event_users_like("tarot")
+    total_checks = num_cnt + tarot_cnt
     pay_visits = unique_event_users("pay")
     pay_clicks = unique_event_users_like("buy_")
     pay_backs = unique_event_users("back_pay")
     payments = payment_stats()
     pay_users = unique_payers()
-    cnt_card = sum(c for m, q, c in payments if m == "card")
-    cnt_star = sum(c for m, q, c in payments if m != "card")
-    total_rub = sum(PACKS_RUB.get(q, 0) * c for m, q, c in payments if m == "card") // 100
-    total_star = sum(PACKS_STARS.get(q, 0) * c for m, q, c in payments if m != "card")
+    card_packs: dict[int, int] = {}
+    star_packs: dict[int, int] = {}
+    for method, qty, cnt in payments:
+        if method == "card":
+            card_packs[qty] = card_packs.get(qty, 0) + cnt
+        else:
+            star_packs[qty] = star_packs.get(qty, 0) + cnt
+    cnt_card = sum(card_packs.values())
+    cnt_star = sum(star_packs.values())
+    total_rub = sum(PACKS_RUB.get(q, 0) * c for q, c in card_packs.items()) // 100
+    total_star = sum(PACKS_STARS.get(q, 0) * c for q, c in star_packs.items())
     top_method = "₽" if cnt_card >= cnt_star else "⭐"
+    refs = referral_counts()
+    total_refs = sum(c for _, c in refs)
+    topics = {
+        "Отношения": events.get("topic_rel", 0),
+        "Работа": events.get("topic_work", 0),
+        "Саморазвитие": events.get("topic_self", 0),
+        "Семья": events.get("topic_family", 0),
+    }
+
+    card_details = ", ".join(f"{q}×{c}" for q, c in sorted(card_packs.items()))
+    star_details = ", ".join(f"{q}×{c}" for q, c in sorted(star_packs.items()))
 
     rows = [
         ("Новых за 1д", day1),
@@ -1093,13 +1114,18 @@ async def stats(update: Update, ctx):
         ("Сумма ₽", total_rub),
         ("Сумма ⭐", total_star),
         ("Популярный метод", top_method),
-        ("Всего проверок", total),
-        ("Коллега", scans["colleague"]),
-        ("Отношения", scans["romance"]),
-        ("Продажи", scans["sales"]),
-        ("Общий", scans["common"]),
-        ("Таро", scans["tarot"]),
+        ("Нумерология", f"{num_users}/{num_cnt}"),
+        ("Таро", f"{tarot_users}/{tarot_cnt}"),
+        ("Всего проверок", total_checks),
+        ("Приглашено", total_refs),
     ]
+
+    for name, cnt in topics.items():
+        rows.append((f"Тема {name}", cnt))
+    if card_details:
+        rows.append(("Пакеты ₽", card_details))
+    if star_details:
+        rows.append(("Пакеты ⭐", star_details))
 
     table = ["|Показатель|Кол.|", "|---|---:|"]
     for k, v in rows:
