@@ -56,7 +56,6 @@ from db import (
     unique_payers,
     referral_count,
     log_ab_event,
-    get_subscribed,
     set_subscribed,
 )
 
@@ -78,9 +77,9 @@ SUPPORT = os.getenv("SUPPORT", "@support")
 ADMIN_IDS = {int(x) for x in os.getenv("ADMINS", "").split(",") if x}
 
 # ── Subscription ─────────────────────────────────────
+# Проверяем подписку на канал при каждом обращении
 CHANNEL_ID = -1002883355776
 JOIN_URL = "https://t.me/obotization/3"
-SUB_CACHE_TTL = 3600
 
 # ── Текст ────────────────────────────────────────────
 GREETING = (
@@ -479,11 +478,8 @@ async def ensure_subscription(update: Update, ctx) -> bool:
     uid = update.effective_user.id
     if uid in ADMIN_IDS:
         return True
-    now = int(time.time())
-    subscribed, last_ts = get_subscribed(uid)
-    if subscribed and now - last_ts < SUB_CACHE_TTL:
-        return True
     ok = await _check_member(ctx.bot, uid)
+    now = int(time.time())
     set_subscribed(uid, ok, now)
     if ok:
         return True
