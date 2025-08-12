@@ -94,6 +94,23 @@ def _get_conn() -> sqlite3.Connection:
 DB = _get_conn()
 
 
+def init_sub():
+    """Добавляет колонки кэширования подписки, если их ещё нет."""
+    with _LOCK:
+        try:
+            DB.execute(
+                "ALTER TABLE users ADD COLUMN subscribed INTEGER DEFAULT 0"
+            )
+        except sqlite3.OperationalError:
+            pass
+        try:
+            DB.execute(
+                "ALTER TABLE users ADD COLUMN last_sub_check INTEGER DEFAULT 0"
+            )
+        except sqlite3.OperationalError:
+            pass
+
+
 # ── util ─────────────────────────────────────────────
 def _ensure(uid: int) -> bool:
     """Добавить пользователя при первом обращении.
@@ -183,6 +200,27 @@ def count_new_users(days: int) -> int:
             "SELECT COUNT(*) FROM users WHERE joined>=?", (border,)
         ).fetchone()
     return row[0] if row else 0
+
+
+def get_subscribed(uid: int) -> tuple[int, int]:
+    """Возвращает (subscribed, last_sub_check) для пользователя."""
+    with _LOCK:
+        _ensure(uid)
+        row = DB.execute(
+            "SELECT subscribed, last_sub_check FROM users WHERE id=?",
+            (uid,),
+        ).fetchone()
+    return (row[0] if row else 0, row[1] if row else 0)
+
+
+def set_subscribed(uid: int, ok: bool, now_ts: int):
+    """Сохраняет результат проверки подписки."""
+    with _LOCK:
+        _ensure(uid)
+        DB.execute(
+            "UPDATE users SET subscribed=?, last_sub_check=? WHERE id=?",
+            (1 if ok else 0, now_ts, uid),
+        )
 
 
 def event_stats() -> dict[str, int]:

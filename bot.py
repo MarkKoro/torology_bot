@@ -1,6 +1,6 @@
 # bot.py – версия 02-06-2025: фиксы оплаты, 1-й бесплатный анализ, уведомление grant
 # -*- coding: utf-8 -*-
-import os, logging, asyncio, contextlib, re, html, json, datetime as dt, subprocess
+import os, logging, asyncio, contextlib, re, html, json, datetime as dt, subprocess, time
 from pathlib import Path
 from dotenv import load_dotenv
 from telegram import (
@@ -13,7 +13,7 @@ from telegram import (
 )
 from telegram.constants import ParseMode
 from telegram.helpers import escape_markdown
-from telegram.error import BadRequest, NetworkError, TimedOut, RetryAfter
+from telegram.error import BadRequest, NetworkError, TimedOut, RetryAfter, Forbidden
 from telegram.request import HTTPXRequest
 from telegram.ext import (
     Application,
@@ -56,7 +56,11 @@ from db import (
     unique_payers,
     referral_count,
     log_ab_event,
+    get_subscribed,
+    set_subscribed,
 )
+
+db.init_sub()
 
 # ── Логи ─────────────────────────────────────────────
 logging.basicConfig(
@@ -72,6 +76,11 @@ YK_TOKEN = os.getenv("YK_TOKEN")
 CACHE_CHAT_ID = int(os.getenv("CACHE_CHAT_ID", "0")) or None
 SUPPORT = os.getenv("SUPPORT", "@support")
 ADMIN_IDS = {int(x) for x in os.getenv("ADMINS", "").split(",") if x}
+
+# ── Subscription ─────────────────────────────────────
+CHANNEL_ID = -1002883355776
+JOIN_URL = "https://t.me/obotization/3"
+SUB_CACHE_TTL = 3600
 
 # ── Текст ────────────────────────────────────────────
 GREETING = (
@@ -416,6 +425,15 @@ def kb_cards(options: list[dict], step: int) -> Mk:
     return Mk(rows)
 
 
+def kb_sub():
+    return Mk(
+        [
+            [Btn("✅ Подписаться", url=JOIN_URL)],
+            [Btn("🔁 Проверить подписку", callback_data="chk_sub")],
+        ]
+    )
+
+
 def split_chunks(text: str, limit: int = TG_LIMIT) -> list[str]:
     parts, cur = [], []
     cur_len = 0
@@ -445,6 +463,37 @@ async def safe_send_report(chat, text_md: str, kb):
             await send_plain(chat, text_md, reply_markup=kb)
         else:
             raise
+
+
+async def _check_member(bot, user_id: int) -> bool:
+    try:
+        m = await bot.get_chat_member(CHANNEL_ID, user_id)
+        return m.status in {"member", "administrator", "creator"}
+    except (BadRequest, Forbidden):
+        return False
+    except Exception:
+        return False
+
+
+async def ensure_subscription(update: Update, ctx) -> bool:
+    uid = update.effective_user.id
+    if uid in ADMIN_IDS:
+        return True
+    now = int(time.time())
+    subscribed, last_ts = get_subscribed(uid)
+    if subscribed and now - last_ts < SUB_CACHE_TTL:
+        return True
+    ok = await _check_member(ctx.bot, uid)
+    set_subscribed(uid, ok, now)
+    if ok:
+        return True
+    if update.callback_query:
+        await update.callback_query.answer()
+    await update.effective_chat.send_message(
+        "Чтобы пользоваться ботом, подпишись на наш канал. После подписки нажми «Проверить подписку» ниже.",
+        reply_markup=kb_sub(),
+    )
+    return False
 
 
 # ── helper: активное меню ───────────────────────────
@@ -497,6 +546,8 @@ async def show(
 
 # ── /start ───────────────────────────────────────────
 async def start(update: Update, ctx):
+    if not await ensure_subscription(update, ctx):
+        return
     uid = update.effective_user.id
     args = update.message.text.split(maxsplit=1)[1:] if update.message else []
 
@@ -534,8 +585,28 @@ async def start(update: Update, ctx):
 # ── Router ──────────────────────────────────────────
 async def router(update: Update, ctx):
     q = update.callback_query
+    data = q.data
+    if data == "chk_sub":
+        uid = update.effective_user.id
+        ok = await _check_member(ctx.bot, uid)
+        now_ts = int(time.time())
+        set_subscribed(uid, ok, now_ts)
+        if ok:
+            await q.answer()
+            with contextlib.suppress(BadRequest):
+                await q.message.edit_reply_markup(reply_markup=None)
+            await q.message.reply_text("Подписка подтверждена. Продолжаем!")
+            await show_main(update, ctx, uid)
+        else:
+            await q.answer(
+                "Подписка пока не найдена. Проверь, что ты подписан/а, и нажми ещё раз.",
+                show_alert=True,
+            )
+        return
+    if not await ensure_subscription(update, ctx):
+        return
     await q.answer()
-    uid, data = update.effective_user.id, q.data
+    uid = update.effective_user.id
     now = asyncio.get_running_loop().time()
     last = ctx.user_data.get("last_cb")
     if last and (q.id == last[0] or (data == last[1] and now - last[2] < 0.3)):
@@ -804,6 +875,8 @@ async def router(update: Update, ctx):
 
 
 async def send_numerology(update: Update, ctx, uid: int):
+    if not await ensure_subscription(update, ctx):
+        return
     dob1 = ctx.user_data.pop("dob1")
     dob2 = ctx.user_data.pop("dob2", None)
     gender = ctx.user_data.pop("gender", None)
@@ -844,6 +917,8 @@ async def send_numerology(update: Update, ctx, uid: int):
 
 
 async def handle_text(update: Update, ctx):
+    if not await ensure_subscription(update, ctx):
+        return
     mode = ctx.user_data.get("mode")
     if mode == "num_dob1":
         dob = parse_date(update.message.text)
@@ -879,10 +954,17 @@ async def handle_text(update: Update, ctx):
 
 # ── Payment ─────────────────────────────────────────
 async def pre_checkout(update: Update, ctx):
+    if not await ensure_subscription(update, ctx):
+        await update.pre_checkout_query.answer(
+            False, "Подпишись на канал и попробуй снова"
+        )
+        return
     await update.pre_checkout_query.answer(True)
 
 
 async def paid(update: Update, ctx):
+    if not await ensure_subscription(update, ctx):
+        return
     parts = update.message.successful_payment.invoice_payload.split("_")
     qty = int(parts[1])
     method = parts[2] if len(parts) > 2 else "card"
