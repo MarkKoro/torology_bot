@@ -205,7 +205,6 @@ def count_new_users(days: int) -> int:
 def get_subscribed(uid: int) -> tuple[int, int]:
     """Возвращает (subscribed, last_sub_check) для пользователя."""
     with _LOCK:
-        _ensure(uid)
         row = DB.execute(
             "SELECT subscribed, last_sub_check FROM users WHERE id=?",
             (uid,),
@@ -216,7 +215,6 @@ def get_subscribed(uid: int) -> tuple[int, int]:
 def set_subscribed(uid: int, ok: bool, now_ts: int):
     """Сохраняет результат проверки подписки."""
     with _LOCK:
-        _ensure(uid)
         DB.execute(
             "UPDATE users SET subscribed=?, last_sub_check=? WHERE id=?",
             (1 if ok else 0, now_ts, uid),

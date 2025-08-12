@@ -574,6 +574,7 @@ async def start(update: Update, ctx):
     # 1-й визит → автоматически +2, по реферальной ссылке +4
     if first_visit:
         add_credits(uid, 4 if referred else 2)
+        set_subscribed(uid, True, int(time.time()))
 
     await show_main(update, ctx, uid)
 
