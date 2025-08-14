@@ -362,16 +362,16 @@ def kb_pay():
     return Mk(
         [
             [
-                Btn("3 балла – 160 ₽", callback_data="buy_3_card"),
-                Btn("3 балла – 90 ⭐", callback_data="buy_3_star"),
+                Btn("3 балла – 100 ₽", callback_data="buy_3_card"),
+                Btn("3 балла – 55 ⭐", callback_data="buy_3_star"),
             ],
             [
-                Btn("8 баллов – 365 ₽", callback_data="buy_8_card"),
-                Btn("8 баллов – 205 ⭐", callback_data="buy_8_star"),
+                Btn("8 баллов – 235 ₽", callback_data="buy_8_card"),
+                Btn("8 баллов – 125 ⭐", callback_data="buy_8_star"),
             ],
             [
-                Btn("15 баллов – 635 ₽", callback_data="buy_15_card"),
-                Btn("15 баллов – 355 ⭐", callback_data="buy_15_star"),
+                Btn("15 баллов – 400 ₽", callback_data="buy_15_card"),
+                Btn("15 баллов – 225 ⭐", callback_data="buy_15_star"),
             ],
             [Btn("← Назад", callback_data="back")],
         ]
