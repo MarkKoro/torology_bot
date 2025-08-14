@@ -122,10 +122,10 @@ FOOTER_TAROT = (
 REMINDER_TXT1 = "Привет, ну как сработал ли твой прогноз?"
 REMINDER_TXT2 = "Ну что, проверим, что ждёт тебя сегодня?"
 
-# Цены пакетов (в копейках) с учётом повышенного тарифа
-PACKS_RUB = {3: 160_00, 8: 365_00, 15: 635_00}
+# Цены пакетов (в копейках) с учётом пониженного тарифа
+PACKS_RUB = {3: 110_00, 8: 255_00, 15: 445_00}
 # Стоимость пакетов в звёздах (1 ⭐ = 1.79 ₽)
-PACKS_STARS = {3: 90, 8: 205, 15: 355}
+PACKS_STARS = {3: 65, 8: 145, 15: 250}
 BONUS_REF = 2
 
 # Стоимость услуг в баллах
@@ -1076,8 +1076,10 @@ async def broadcast(update: Update, ctx):
     for uid in all_user_ids():
         try:
             await ctx.bot.send_message(uid, text)
-        except BadRequest:
+        except (BadRequest, Forbidden):
             pass
+        except Exception as e:
+            log.warning(f"Broadcast to {uid} failed: {e}")
     await update.message.reply_text("✅ Рассылка завершена.")
 
 
