@@ -12,7 +12,6 @@ from telegram import (
     CopyTextButton,
 )
 from telegram.constants import ParseMode
-from telegram.helpers import escape_markdown
 from telegram.error import BadRequest, NetworkError, TimedOut, RetryAfter, Forbidden
 from telegram.request import HTTPXRequest
 from telegram.ext import (
@@ -108,10 +107,11 @@ HOW_IT_WORKS = (
     "✨ Показываю возможные пути развития.\n"
     "🏁 Итог помогает выбрать верное направление."
 )
-FOOTER = (
+FOOTER_NUM = (
     "\n\n"
-    "Голова выше, плечи назад. Только ты кузнец своего счастья, "
-    "у тебя всё получится. Я в тебя верю."
+    "Это лишь одна грань твоей истории. В других сферах жизни тебя"
+    " ещё ждёт много открытий. Пара кликов — и ты узнаешь больше о"
+    " работе, саморазвитии или общем анализе."
 )
 
 FOOTER_TAROT = (
@@ -261,10 +261,10 @@ def compatibility_label(dob1: str, dob2: str) -> str:
     d2 = _digital_root(dob2)
     diff = abs(d1 - d2) % 9
     if diff % 3 == 0:
-        return "Судьба"
+        return "Зеркало"
     elif diff % 3 == 1:
         return "Карма"
-    return "Зеркало"
+    return "Судьба"
 
 def new_session_deck(uid: int, kind: str) -> list[dict]:
     import random, hashlib
@@ -400,6 +400,7 @@ def kb_topic():
             [Btn("Работа", callback_data="topic_work")],
             [Btn("Саморазвитие", callback_data="topic_self")],
             [Btn("Семья", callback_data="topic_family")],
+            [Btn("Общий анализ", callback_data="topic_general")],
             [Btn("← Назад", callback_data="back")],
         ]
     )
@@ -455,13 +456,8 @@ async def send_plain(chat, text: str, **kwargs):
 
 
 async def safe_send_report(chat, text_md: str, kb):
-    try:
-        await chat.send_message(text_md, parse_mode="Markdown", reply_markup=kb)
-    except BadRequest as e:
-        if "Can't parse entities" in str(e):
-            await send_plain(chat, text_md, reply_markup=kb)
-        else:
-            raise
+    clean = re.sub(r"[#*]", "", text_md)
+    await send_plain(chat, clean, reply_markup=kb)
 
 
 async def _check_member(bot, user_id: int) -> bool:
@@ -782,6 +778,7 @@ async def router(update: Update, ctx):
             "work": "Работа",
             "self": "Саморазвитие",
             "family": "Семья",
+            "general": "Общий анализ",
         }
         ctx.user_data["topic"] = topic_map.get(data.split("_",1)[1])
         pid = ctx.user_data.pop("prompt_id", None)
@@ -878,7 +875,9 @@ async def send_numerology(update: Update, ctx, uid: int):
     dob2 = ctx.user_data.pop("dob2", None)
     gender = ctx.user_data.pop("gender", None)
     topic = ctx.user_data.pop("topic", None)
-    proc = await update.effective_chat.send_message("⌛ Твой запрос обрабатывается, подожди.")
+    proc = await update.effective_chat.send_message(
+        "⌛ (Твой запрос обрабатывается, подожди…подготовка ответа может занять до минуты)"
+    )
     loop = asyncio.get_running_loop()
     variant = "B" if uid % 2 else "A"
     report = await loop.run_in_executor(None, build_numerology, dob1, gender, topic, dob2, variant)
@@ -894,7 +893,7 @@ async def send_numerology(update: Update, ctx, uid: int):
     try:
         await safe_send_report(
             update.effective_chat,
-            (f"*{label}*\n\n" if label else "") + report + FOOTER,
+            (f"{label}\n\n" if label else "") + report + FOOTER_NUM,
             kb_home(),
         )
     except Exception:
@@ -1178,6 +1177,7 @@ async def stats(update: Update, ctx):
         "Работа": events.get("topic_work", 0),
         "Саморазвитие": events.get("topic_self", 0),
         "Семья": events.get("topic_family", 0),
+        "Общий анализ": events.get("topic_general", 0),
     }
 
     card_details = ", ".join(f"{q}×{c}" for q, c in sorted(card_packs.items()))
