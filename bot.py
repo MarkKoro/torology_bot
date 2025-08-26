@@ -72,7 +72,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 YK_TOKEN = os.getenv("YK_TOKEN")
 CACHE_CHAT_ID = int(os.getenv("CACHE_CHAT_ID", "0")) or None
-SUPPORT = os.getenv("SUPPORT", "@obotizatciaSupp_bot")
+SUPPORT_URL = "https://t.me/obotizatciaSupp_bot"
 ADMIN_IDS = {int(x) for x in os.getenv("ADMINS", "").split(",") if x}
 
 # ── Subscription ─────────────────────────────────────
@@ -335,7 +335,7 @@ def kb_main(uid: int, credits: int) -> Mk:
             [Btn("📑 Как это работает?", callback_data="how")],
             [Btn(f"💳 Пополнить баланс ({credits} {plural_ball(credits)})", callback_data="pay")],
             [Btn("👥 Пригласи друга", callback_data="ref")],
-            [Btn("🛟 Техподдержка", url=f"https://t.me/{SUPPORT.lstrip('@')}")],
+            [Btn("🛟 Техподдержка", url=SUPPORT_URL)],
         ]
     )
 
