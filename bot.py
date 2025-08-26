@@ -72,7 +72,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 YK_TOKEN = os.getenv("YK_TOKEN")
 CACHE_CHAT_ID = int(os.getenv("CACHE_CHAT_ID", "0")) or None
-SUPPORT = os.getenv("SUPPORT", "@support")
+SUPPORT = os.getenv("SUPPORT", "@ObotizactiaSuppBot")
 ADMIN_IDS = {int(x) for x in os.getenv("ADMINS", "").split(",") if x}
 
 # ── Subscription ─────────────────────────────────────
