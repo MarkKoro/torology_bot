@@ -374,6 +374,17 @@ def payment_stats() -> list[tuple[str, int, int]]:
     return [(r[0], r[1], r[2]) for r in rows]
 
 
+def payment_stats_since(days: int) -> list[tuple[str, int, int]]:
+    """Статистика оплат за последние ``days`` дней."""
+    border = int(time.time()) - days * 86400
+    with _LOCK:
+        rows = DB.execute(
+            "SELECT method, qty, COUNT(*) FROM payments WHERE ts>=? GROUP BY method, qty",
+            (border,),
+        ).fetchall()
+    return [(r[0], r[1], r[2]) for r in rows]
+
+
 def unique_payers() -> int:
     """Количество пользователей, совершивших хоть одну оплату."""
     with _LOCK:

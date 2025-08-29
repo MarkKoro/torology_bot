@@ -52,6 +52,7 @@ from db import (
     referral_payment_stats,
     referral_payment_stats_user,
     payment_stats,
+    payment_stats_since,
     unique_payers,
     referral_count,
     log_ab_event,
@@ -1157,6 +1158,7 @@ async def stats(update: Update, ctx):
     pay_clicks = unique_event_users_like("buy_")
     pay_backs = unique_event_users("back_pay")
     payments = payment_stats()
+    payments30 = payment_stats_since(30)
     pay_users = unique_payers()
     card_packs: dict[int, int] = {}
     star_packs: dict[int, int] = {}
@@ -1165,10 +1167,23 @@ async def stats(update: Update, ctx):
             card_packs[qty] = card_packs.get(qty, 0) + cnt
         else:
             star_packs[qty] = star_packs.get(qty, 0) + cnt
+    card_packs30: dict[int, int] = {}
+    star_packs30: dict[int, int] = {}
+    for method, qty, cnt in payments30:
+        if method == "card":
+            card_packs30[qty] = card_packs30.get(qty, 0) + cnt
+        else:
+            star_packs30[qty] = star_packs30.get(qty, 0) + cnt
     cnt_card = sum(card_packs.values())
     cnt_star = sum(star_packs.values())
     total_rub = sum(PACKS_RUB.get(q, 0) * c for q, c in card_packs.items()) // 100
     total_star = sum(PACKS_STARS.get(q, 0) * c for q, c in star_packs.items())
+    total_rub30 = (
+        sum(PACKS_RUB.get(q, 0) * c for q, c in card_packs30.items()) // 100
+    )
+    total_star30 = sum(
+        PACKS_STARS.get(q, 0) * c for q, c in star_packs30.items()
+    )
     top_method = "₽" if cnt_card >= cnt_star else "⭐"
     refs = referral_counts()
     total_refs = sum(c for _, c in refs)
@@ -1194,6 +1209,8 @@ async def stats(update: Update, ctx):
         ("Оплатили", pay_users),
         ("Сумма ₽", total_rub),
         ("Сумма ⭐", total_star),
+        ("Сумма ₽ 30д", total_rub30),
+        ("Сумма ⭐ 30д", total_star30),
         ("Популярный метод", top_method),
         ("Нумерология", f"{num_users}/{num_cnt}"),
         ("Таро", f"{tarot_users}/{tarot_cnt}"),
