@@ -108,11 +108,11 @@ HOW_IT_WORKS = (
     "✨ Показываю возможные пути развития.\n"
     "🏁 Итог помогает выбрать верное направление."
 )
-INTRO_NUM = (
-    "Карма: отношения для отработки уроков. "
-    "Судьба: предначертанный союз. "
-    "Зеркало: партнёр отражает твои качества."
-)
+INTRO_NUM = {
+    "Карма": "Карма: отношения для отработки уроков.",
+    "Судьба": "Судьба: предначертанный союз.",
+    "Зеркало": "Зеркало: партнёр отражает твои качества.",
+}
 FOOTER_NUM = (
     "\n\n"
     "Это лишь одна грань твоей истории. В других сферах жизни тебя"
@@ -897,13 +897,10 @@ async def send_numerology(update: Update, ctx, uid: int):
 
     # 1) Пытаемся доставить
     try:
+        intro = INTRO_NUM.get(label, "")
         await safe_send_report(
             update.effective_chat,
-            INTRO_NUM
-            + "\n\n"
-            + (f"{label}\n\n" if label else "")
-            + report
-            + FOOTER_NUM,
+            (intro + "\n\n" if intro else "") + report + FOOTER_NUM,
             kb_home(),
         )
     except Exception:
