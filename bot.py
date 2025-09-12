@@ -108,6 +108,11 @@ HOW_IT_WORKS = (
     "✨ Показываю возможные пути развития.\n"
     "🏁 Итог помогает выбрать верное направление."
 )
+INTRO_NUM = (
+    "Карма: отношения для отработки уроков. "
+    "Судьба: предначертанный союз. "
+    "Зеркало: партнёр отражает твои качества."
+)
 FOOTER_NUM = (
     "\n\n"
     "Это лишь одна грань твоей истории. В других сферах жизни тебя"
@@ -260,10 +265,10 @@ def _digital_root(dob: str) -> int:
 def compatibility_label(dob1: str, dob2: str) -> str:
     d1 = _digital_root(dob1)
     d2 = _digital_root(dob2)
-    diff = abs(d1 - d2) % 9
-    if diff % 3 == 0:
+    s = (d1 + d2) % 3
+    if s == 0:
         return "Зеркало"
-    elif diff % 3 == 1:
+    elif s == 1:
         return "Карма"
     return "Судьба"
 
@@ -894,7 +899,11 @@ async def send_numerology(update: Update, ctx, uid: int):
     try:
         await safe_send_report(
             update.effective_chat,
-            (f"{label}\n\n" if label else "") + report + FOOTER_NUM,
+            INTRO_NUM
+            + "\n\n"
+            + (f"{label}\n\n" if label else "")
+            + report
+            + FOOTER_NUM,
             kb_home(),
         )
     except Exception:
