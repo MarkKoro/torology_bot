@@ -129,9 +129,9 @@ REMINDER_TXT1 = "Привет, ну как сработал ли твой про
 REMINDER_TXT2 = "Ну что, проверим, что ждёт тебя сегодня?"
 
 # Цены пакетов (в копейках) с учётом пониженного тарифа
-PACKS_RUB = {3: 55_00, 8: 127_50, 15: 222_50}
-# Стоимость пакетов в звёздах (1 ⭐ = 1.79 ₽)
-PACKS_STARS = {3: 32, 8: 72, 15: 125}
+PACKS_RUB = {3: 15_00, 8: 40_00, 15: 65_00, 40: 100_00}
+# Стоимость пакетов в звёздах (1 ⭐ ≈ 1.79 ₽)
+PACKS_STARS = {3: 8, 8: 22, 15: 36, 40: 56}
 BONUS_REF = 2
 
 # Стоимость услуг в баллах
@@ -368,16 +368,20 @@ def kb_pay():
     return Mk(
         [
             [
-                Btn("3 балла – 55 ₽", callback_data="buy_3_card"),
-                Btn("3 балла – 32 ⭐", callback_data="buy_3_star"),
+                Btn("3 балла – 15 ₽", callback_data="buy_3_card"),
+                Btn("3 балла – 8 ⭐", callback_data="buy_3_star"),
             ],
             [
-                Btn("8 баллов – 127.5 ₽", callback_data="buy_8_card"),
-                Btn("8 баллов – 72 ⭐", callback_data="buy_8_star"),
+                Btn("8 баллов – 40 ₽", callback_data="buy_8_card"),
+                Btn("8 баллов – 22 ⭐", callback_data="buy_8_star"),
             ],
             [
-                Btn("15 баллов – 222.5 ₽", callback_data="buy_15_card"),
-                Btn("15 баллов – 125 ⭐", callback_data="buy_15_star"),
+                Btn("15 баллов – 65 ₽", callback_data="buy_15_card"),
+                Btn("15 баллов – 36 ⭐", callback_data="buy_15_star"),
+            ],
+            [
+                Btn("40 баллов – 100 ₽", callback_data="buy_40_card"),
+                Btn("40 баллов – 56 ⭐", callback_data="buy_40_star"),
             ],
             [Btn("← Назад", callback_data="back")],
         ]
