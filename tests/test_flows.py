@@ -232,6 +232,58 @@ def main():
     assert a.credits() == 1 + 12, a.credits()
     assert not any(m.type == "invoice" for m in fb.visible(101))
 
+    # 5б. Рубли через ЮKassa: общее окно + СБП, начисление по «Проверить» и фоновой сверкой
+    from utils import yookassa
+    fake = {}
+
+    async def fake_create(body, key):
+        pid = "yk-" + key
+        fake.setdefault(pid, dict(body, id=pid, status="pending", paid=False,
+                                  confirmation={"confirmation_url": "https://yoomoney.ru/c/" + pid}))
+        return fake[pid]
+
+    async def fake_fetch(pid):
+        return fake[pid]
+
+    yookassa.create, yookassa.fetch = fake_create, fake_fetch
+    os.environ.update(YOOKASSA_SHOP_ID="1", YOOKASSA_SECRET_KEY="s")
+    bal = a.credits()
+    a.press("buy:15:card")
+    urls = [b.url for row in a.screen().kb.inline_keyboard for b in row if b.url]
+    labels = [b.text for row in a.screen().kb.inline_keyboard for b in row]
+    assert len(urls) == 2 and "⚡ Оплатить (через СБП)" in labels and "💳 Оплатить 199 ₽" in labels, labels
+    sbp = [v for v in fake.values() if v.get("payment_method_data") == {"type": "sbp"}]
+    assert len(sbp) == 1 and len(fake) == 2
+    assert all("NumaTaro" in v["description"] and "15 баллов" in v["description"] for v in fake.values())
+    assert all(v["metadata"]["project_key"] == "torology" for v in fake.values())
+    order_btn = next(d for d in a.buttons() if d and d.startswith("yk:"))
+    a.press(order_btn)  # ещё не оплачено
+    assert "пока не поступила" in a.screen().text and a.credits() == bal
+    a.press("pay")
+    a.press("buy:15:card")  # повторное нажатие — те же ссылки, без новых платежей
+    assert len(fake) == 2
+    sbp[0].update(status="succeeded", paid=True)
+    a.press(order_btn)
+    assert "Оплата прошла" in a.screen().text and a.credits() == bal + 15, a.screen().text
+    a.press(order_btn)  # повторная проверка не начисляет второй раз
+    assert a.credits() == bal + 15
+    # Вторую ссылку из того же заказа тоже оплатили — фоновая сверка начисляет и её, один раз
+    other = next(v for v in fake.values() if v is not sbp[0])
+    other.update(status="succeeded", paid=True)
+    a.run(bot.yk_reconcile_job(a.ctx))
+    a.run(bot.yk_reconcile_job(a.ctx))
+    assert a.credits() == bal + 30 and "Оплата прошла" in a.screen().text
+    # Подмена суммы в ответе не начисляет баллы
+    a.press("buy:6:card")
+    bad = [v for v in fake.values() if v["metadata"]["qty"] == "6"]
+    for v in bad:
+        v.update(status="succeeded", paid=True, amount={"value": "1.00", "currency": "RUB"})
+    a.run(bot.yk_reconcile_job(a.ctx))
+    assert a.credits() == bal + 30
+    del os.environ["YOOKASSA_SHOP_ID"]
+    assert db.spend_credits(101, 30)  # дальше сценарии рассчитаны на прежний баланс
+    a.press("m")
+
     # 6. Нумерология: дата → пол → совместимость → ошибка ввода → разбор
     a.press("n")
     assert "Напиши свою дату" in a.screen().text

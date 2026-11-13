@@ -13,9 +13,11 @@ import os
 import re
 import subprocess
 import time
+import uuid
 from collections import defaultdict
 from urllib.parse import quote
 
+import httpx
 from dotenv import load_dotenv
 from telegram import (
     BotCommand,
@@ -77,7 +79,7 @@ from db import (
     unique_event_users_like,
     unique_payers,
 )
-from utils import deck, numerology
+from utils import deck, numerology, yookassa
 from utils.llm import build_daily, build_numerology, build_tarot, llm_queue_size
 
 db.init_sub()
@@ -91,6 +93,7 @@ START_TIME = dt.datetime.now()
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 YK_TOKEN = os.getenv("YK_TOKEN")
+BRAND = os.getenv("BRAND_NAME", "NumaTaro")
 SUPPORT_URL = os.getenv("SUPPORT_URL", "https://t.me/obotizatciaSupp_bot")
 ADMIN_IDS = {int(x) for x in os.getenv("ADMINS", "").split(",") if x.strip()}
 CHANNEL_ID = int(os.getenv("CHANNEL_ID", "-1002883355776") or 0)
@@ -394,7 +397,7 @@ def kb_pay(back: str = "m") -> Mk:
     rows = []
     for qty, p in PACKS.items():
         row = []
-        if YK_TOKEN:
+        if YK_TOKEN or yookassa.enabled():
             row.append(Btn(f"{qty} {plural_ball(qty)} · {p['rub'] // 100} ₽{p['tag']}",
                            callback_data=f"buy:{qty}:card"))
         row.append(Btn(f"{qty} · {p['stars']} ⭐", callback_data=f"buy:{qty}:star"))
@@ -965,10 +968,13 @@ async def dispatch(update: Update, ctx, scr: Screen, data: str):
         _, qty, method = data.split(":")
         qty = int(qty)
         pack = PACKS.get(qty)
-        if not pack or (method == "card" and not YK_TOKEN):
+        if not pack or (method == "card" and not (YK_TOKEN or yookassa.enabled())):
             await scr.show(pay_text(uid), kb_pay())
             return
         log_event(f"buy_{qty}_{method}", uid)
+        if method == "card" and yookassa.enabled():
+            if await yk_checkout(ctx, scr, qty) or not YK_TOKEN:
+                return
         star = method != "card"
         await scr.invoice(
             title=f"{qty} {plural_ball(qty)}",
@@ -980,6 +986,8 @@ async def dispatch(update: Update, ctx, scr: Screen, data: str):
             prices=[LabeledPrice(f"{qty} {plural_ball(qty)}", pack["stars"] if star else pack["rub"])],
             reply_markup=Mk([[Btn("Оплатить", pay=True)], [Btn("← Назад", callback_data="pay")]]),
         )
+    elif data.startswith("yk:"):
+        await yk_check(ctx, scr, data[3:])
     elif data == "ref":
         await show_ref(scr, ctx)
     else:
@@ -1109,6 +1117,144 @@ async def paid(update: Update, ctx):
             await update.message.delete()
         await show_main(screen_for(update, ctx, new=True),
                         f"✅ <b>Оплата прошла!</b> +{balls(qty)} на балансе. Спасибо 💜")
+
+
+# ── Оплата рублями через ЮKassa: общее окно + СБП ────
+YK_REUSE_SEC = 30 * 60          # повторное нажатие на тот же пакет — те же ссылки
+YK_PAID = "✅ <b>Оплата прошла!</b> +{} на балансе. Спасибо 💜"
+
+
+def _bot_username(ctx) -> str:
+    return getattr(ctx.bot, "username", None) or "TaroNumeBot"
+
+
+def yk_description(ctx, qty: int) -> str:
+    return f"{BRAND} (@{_bot_username(ctx)}): {qty} {plural_ball(qty)} на расклады Таро и нумерологию"
+
+
+async def yk_create_order(ctx, uid: int, qty: int) -> list[dict]:
+    rows = db.yk_fresh_order(uid, qty, YK_REUSE_SEC)
+    if rows:
+        return rows
+    pack = PACKS[qty]
+    rub = pack["rub"] // 100
+    order_id = uuid.uuid4().hex
+    for route in yookassa.ROUTES:
+        body = yookassa.payload(uid, qty, rub, route, yk_description(ctx, qty), f"https://t.me/{_bot_username(ctx)}")
+        for _attempt in range(2):  # повтор с тем же ключом идемпотентности не создаёт второй платёж
+            try:
+                p = yookassa.validate(await yookassa.create(body, f"{order_id}-{route}"), uid, qty, rub)
+                url = (p.get("confirmation") or {}).get("confirmation_url")
+                db.yk_save(p["id"], order_id, uid, qty, route, pack["rub"], p["status"], url)
+                break
+            except httpx.HTTPStatusError as e:
+                log.warning("yookassa create %s uid=%s: HTTP %s %s", route, uid,
+                            e.response.status_code, e.response.text[:300])
+                if e.response.status_code < 500:
+                    break
+            except (httpx.HTTPError, ValueError, TypeError, KeyError) as e:
+                log.warning("yookassa create %s uid=%s: %r", route, uid, e)
+    return [r for r in db.yk_order(order_id) if r["status"] == "pending" and r["url"]]
+
+
+def yk_text(qty: int, note: str | None = None) -> str:
+    rub = PACKS[qty]["rub"] // 100
+    lines = [f"⚠️ {note}", ""] if note else []
+    lines += [
+        f"💎 <b>{qty} {plural_ball(qty)} — {rub} ₽</b>\n",
+        "Выбери удобный способ:",
+        "💳 <b>Оплатить</b> — карта, SberPay, T-Pay, ЮMoney и другие",
+        "⚡ <b>Через СБП</b> — перевод из приложения твоего банка, без ввода карты\n",
+        "Баллы придут сюда автоматически в течение минуты после оплаты. "
+        "Если не пришли — нажми «Проверить оплату».",
+    ]
+    return "\n".join(lines)
+
+
+def kb_yk(rows: list[dict]) -> Mk:
+    qty = rows[0]["qty"]
+    rub = PACKS[qty]["rub"] // 100
+    by = {r["route"]: r for r in rows}
+    kb = []
+    if "all" in by:
+        kb.append([Btn(f"💳 Оплатить {rub} ₽", url=by["all"]["url"])])
+    if "sbp" in by:
+        kb.append([Btn("⚡ Оплатить (через СБП)", url=by["sbp"]["url"])])
+    kb.append([Btn("✅ Проверить оплату", callback_data=f"yk:{rows[0]['order_id']}")])
+    kb.append([Btn("← Назад", callback_data="pay")])
+    return Mk(kb)
+
+
+async def yk_checkout(ctx, scr: Screen, qty: int) -> bool:
+    rows = await yk_create_order(ctx, scr.uid, qty)
+    if not rows:
+        if not YK_TOKEN:
+            await scr.show(pay_text(scr.uid, "Оплата рублями временно недоступна. Попробуй через пару минут "
+                                             "или оплати звёздами."), kb_pay())
+        return False
+    await scr.show(yk_text(qty), kb_yk(rows))
+    return True
+
+
+async def yk_settle(row: dict) -> str:
+    """Сверяет платёж с ЮKassa. 'credited' — баллы начислены именно сейчас."""
+    p = yookassa.validate(await yookassa.fetch(row["payment_id"]), row["uid"], row["qty"], row["amount"] // 100)
+    db.yk_set_status(row["payment_id"], p["status"])
+    if p["status"] == "succeeded" and log_payment(row["uid"], row["qty"], "card", row["payment_id"],
+                                                  row["amount"], "RUB"):
+        add_credits(row["uid"], row["qty"])
+        log_event("paid", row["uid"])
+        log.info("yookassa paid uid=%s qty=%s route=%s id=%s", row["uid"], row["qty"], row["route"], row["payment_id"])
+        return "credited"
+    return p["status"]
+
+
+async def yk_check(ctx, scr: Screen, order_id: str):
+    rows = [r for r in db.yk_order(order_id) if r["uid"] == scr.uid]
+    if not rows:
+        await scr.show(pay_text(scr.uid), kb_pay())
+        return
+    credited, statuses = 0, []
+    for r in rows:
+        st = r["status"]
+        if st in ("pending", "waiting_for_capture"):
+            try:
+                st = await yk_settle(r)
+            except (httpx.HTTPError, ValueError, TypeError, KeyError) as e:
+                log.warning("yookassa check uid=%s: %r", scr.uid, e)
+        if st == "credited":
+            credited += r["qty"]
+            st = "succeeded"
+        statuses.append(st)
+    if credited:
+        await show_main(scr, YK_PAID.format(balls(credited)))
+    elif "succeeded" in statuses:
+        await show_main(scr, "✅ Эта оплата уже зачислена. Баланс: " + balls(credits_of(scr.uid)))
+    elif all(s == "canceled" for s in statuses):
+        await scr.show(pay_text(scr.uid, "Счёт истёк или оплата отменена. Выбери пакет ещё раз."), kb_pay())
+    else:
+        live = [r for r in db.yk_order(order_id) if r["status"] == "pending" and r["url"]]
+        if live:
+            await scr.show(yk_text(rows[0]["qty"], "Оплата пока не поступила. Если ты уже оплатил — "
+                                                   "подожди минуту и проверь ещё раз."), kb_yk(live))
+        else:
+            await scr.show(pay_text(scr.uid), kb_pay())
+
+
+async def yk_reconcile_job(ctx):
+    """Фоновая сверка: баллы приходят, даже если человек не нажал «Проверить»."""
+    for row in db.yk_due():
+        try:
+            res = await yk_settle(row)
+        except Exception as e:  # noqa: BLE001 — одна ошибка не должна останавливать сверку
+            log.warning("yookassa reconcile %s: %r", row["payment_id"], e)
+            continue
+        if res != "credited":
+            continue
+        uid = row["uid"]
+        async with _locks[uid]:
+            with contextlib.suppress(BadRequest, Forbidden):
+                await show_main(Screen(ctx.bot, uid, uid, new=True), YK_PAID.format(balls(row["qty"])))
 
 
 async def my_chat_member(update: Update, ctx):
@@ -1362,6 +1508,8 @@ def main():
         ChatMemberHandler(my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER),
     ])
     app.add_error_handler(err)
+    if yookassa.enabled():
+        app.job_queue.run_repeating(yk_reconcile_job, interval=20, first=10, name="yookassa_reconcile")
     log.info("Bot started")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 

@@ -98,6 +98,22 @@ def _get_conn() -> sqlite3.Connection:
                         ts       INTEGER,
                         PRIMARY KEY(uid, day))"""
     )
+    # Платежи ЮKassa (API напрямую): два платежа на заказ — общий и СБП.
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS yk_payments(
+                        payment_id TEXT PRIMARY KEY,
+                        order_id   TEXT,
+                        uid        INTEGER,
+                        qty        INTEGER,
+                        route      TEXT,
+                        amount     INTEGER,
+                        status     TEXT,
+                        url        TEXT,
+                        created    INTEGER,
+                        checked    INTEGER DEFAULT 0)"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_yk_order ON yk_payments(order_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_yk_status ON yk_payments(status, created)")
     _migrate(conn)
     return conn
 
@@ -556,3 +572,58 @@ def unique_payers() -> int:
         row = DB.execute("SELECT COUNT(DISTINCT uid) FROM payments").fetchone()
     return row[0] if row else 0
 
+
+
+# ── ЮKassa ───────────────────────────────────────────
+_YK_COLS = "payment_id, order_id, uid, qty, route, amount, status, url, created"
+
+
+def _yk_rows(sql: str, args: tuple = ()) -> list[dict]:
+    keys = [k.strip() for k in _YK_COLS.split(",")]
+    with _LOCK:
+        return [dict(zip(keys, r)) for r in DB.execute(sql, args).fetchall()]
+
+
+def yk_save(payment_id: str, order_id: str, uid: int, qty: int, route: str,
+            amount: int, status: str, url: str | None):
+    """amount — в копейках."""
+    with _LOCK:
+        DB.execute(
+            "INSERT OR IGNORE INTO yk_payments(payment_id, order_id, uid, qty, route, amount, status, url, created)"
+            " VALUES(?,?,?,?,?,?,?,?,?)",
+            (payment_id, order_id, uid, qty, route, amount, status, url, int(time.time())),
+        )
+
+
+def yk_order(order_id: str) -> list[dict]:
+    return _yk_rows(f"SELECT {_YK_COLS} FROM yk_payments WHERE order_id=? ORDER BY route", (order_id,))
+
+
+def yk_fresh_order(uid: int, qty: int, max_age: int) -> list[dict]:
+    """Последний неоплаченный заказ на тот же пакет — чтобы не плодить счета."""
+    rows = _yk_rows(
+        f"SELECT {_YK_COLS} FROM yk_payments WHERE uid=? AND qty=? AND created>=?"
+        " ORDER BY created DESC LIMIT 1",
+        (uid, qty, int(time.time()) - max_age),
+    )
+    if not rows:
+        return []
+    order = yk_order(rows[0]["order_id"])
+    return order if order and all(r["status"] == "pending" and r["url"] for r in order) else []
+
+
+def yk_set_status(payment_id: str, status: str):
+    with _LOCK:
+        DB.execute("UPDATE yk_payments SET status=?, checked=? WHERE payment_id=?",
+                   (status, int(time.time()), payment_id))
+
+
+def yk_due(max_age: int = 48 * 3600) -> list[dict]:
+    """Неоплаченные платежи, которые пора проверить: первый час — каждый раз,
+    потом раз в 5 минут; старше max_age — больше не трогаем."""
+    now = int(time.time())
+    return _yk_rows(
+        f"SELECT {_YK_COLS} FROM yk_payments WHERE status IN ('pending','waiting_for_capture')"
+        " AND created>=? AND (created>=? OR checked<=?) ORDER BY created",
+        (now - max_age, now - 3600, now - 300),
+    )
