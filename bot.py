@@ -86,6 +86,7 @@ db.init_sub()
 
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("apscheduler").setLevel(logging.WARNING)  # сверка оплат идёт раз в 20 с
 log = logging.getLogger(__name__)
 START_TIME = dt.datetime.now()
 
