@@ -20,7 +20,11 @@ client = OpenAI(
     timeout=90,
     max_retries=1,
 )
-MODEL = os.getenv("LLM_MODEL", "deepseek-chat")
+# deepseek-chat/deepseek-reasoner — устаревшие имена; актуальная дешёвая модель —
+# deepseek-flash (DeepSeek-V4.1-Flash). Режим размышлений выключаем: для толкований
+# он не нужен, а «думающие» токены оплачиваются и съедают лимит max_tokens.
+MODEL = os.getenv("LLM_MODEL", "deepseek-flash")
+EXTRA_BODY = {"thinking": {"type": "disabled"}}
 
 _LLM_LOCK = threading.Lock()
 _LLM_COUNT = 0
@@ -34,6 +38,7 @@ def llm_queue_size() -> int:
 STYLE = """
 СТИЛЬ:
 — Только русский язык, обращение на «ты», тёплый спокойный тон взрослого человека.
+— Если указан пол, согласуй с ним окончания. К самому человеку обращайся только на «ты»; о паре говори «вы с ним» / «вы с ней» или «вы оба», без ошибок в роде.
 — Никакого markdown: не используй символы # * _ ~ ` > и не делай списков с тире или цифрами.
 — Короткие абзацы по 2–4 предложения, между абзацами пустая строка.
 — Без штампов, пафоса, мистического тумана и запугивания. Не пророчь «навсегда», не называй точных дат и процентов.
@@ -113,6 +118,7 @@ def _call(system: str, data: dict, max_tokens: int, temperature: float = 0.8) ->
             ],
             max_tokens=max_tokens,
             temperature=temperature,
+            extra_body=EXTRA_BODY,
         )
     finally:
         with _LLM_LOCK:

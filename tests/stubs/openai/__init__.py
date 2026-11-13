@@ -7,7 +7,7 @@ class _Choice:
 class _Resp:
     def __init__(self, c): self.choices = [_Choice(c)]
 class _Completions:
-    def create(self, model, messages, max_tokens, temperature):
+    def create(self, model, messages, max_tokens, temperature, **kwargs):
         if MODE["fail"]:
             raise RuntimeError("api down")
         data = json.loads(messages[1]["content"])
