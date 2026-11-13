@@ -88,7 +88,39 @@ def _get_conn() -> sqlite3.Connection:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS ix_ab_events_variant ON ab_events(variant)"
     )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS daily_cards(
+                        uid      INTEGER,
+                        day      TEXT,
+                        card_id  TEXT,
+                        reversed INTEGER,
+                        text     TEXT,
+                        ts       INTEGER,
+                        PRIMARY KEY(uid, day))"""
+    )
+    _migrate(conn)
     return conn
+
+
+def _add_column(conn, table: str, ddl: str) -> bool:
+    """ALTER TABLE ... ADD COLUMN; True если колонка добавлена сейчас."""
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+        return True
+    except sqlite3.OperationalError:
+        return False
+
+
+def _migrate(conn):
+    """Только добавляющие миграции — старые данные не трогаем."""
+    _add_column(conn, "users", "dob TEXT")
+    _add_column(conn, "users", "gender TEXT")
+    _add_column(conn, "users", "screen_kind TEXT")
+    if _add_column(conn, "users", "ref_rewarded INTEGER DEFAULT 0"):
+        # Всем существующим рефералам бонус уже был начислен старой логикой.
+        conn.execute("UPDATE users SET ref_rewarded=1")
+    _add_column(conn, "payments", "amount INTEGER")
+    _add_column(conn, "payments", "currency TEXT")
 
 
 DB = _get_conn()
@@ -128,6 +160,12 @@ def is_new_user(uid: int) -> bool:
     with _LOCK:
         cur = DB.execute("SELECT 1 FROM users WHERE id=?", (uid,)).fetchone()
         return cur is None
+
+
+def register_user(uid: int) -> bool:
+    "Создаёт пользователя. True — если он новый."
+    with _LOCK:
+        return _ensure(uid)
 
 
 # ── API ──────────────────────────────────────────────
@@ -215,6 +253,7 @@ def get_subscribed(uid: int) -> tuple[int, int]:
 def set_subscribed(uid: int, ok: bool, now_ts: int):
     """Сохраняет результат проверки подписки."""
     with _LOCK:
+        _ensure(uid)
         DB.execute(
             "UPDATE users SET subscribed=?, last_sub_check=? WHERE id=?",
             (1 if ok else 0, now_ts, uid),
@@ -320,14 +359,140 @@ def aliases_for(uid: int) -> list[str]:
     return [r[0] for r in rows]
 
 
-def log_payment(uid: int, qty: int, method: str, charge_id: str) -> bool:
-    """Сохраняет факт оплаты. Возвращает True, если запись новая."""
+def log_payment(
+    uid: int,
+    qty: int,
+    method: str,
+    charge_id: str,
+    amount: int | None = None,
+    currency: str | None = None,
+) -> bool:
+    """Сохраняет факт оплаты. Возвращает True, если запись новая.
+
+    amount — в минимальных единицах (копейки для RUB, звёзды для XTR)."""
     with _LOCK:
         cur = DB.execute(
-            "INSERT OR IGNORE INTO payments(provider_charge_id, uid, qty, method, ts) VALUES(?,?,?,?,?)",
-            (charge_id, uid, qty, method, int(time.time())),
+            "INSERT OR IGNORE INTO payments(provider_charge_id, uid, qty, method, ts, amount, currency)"
+            " VALUES(?,?,?,?,?,?,?)",
+            (charge_id, uid, qty, method, int(time.time()), amount, currency),
         )
         return cur.rowcount > 0
+
+
+def payment_rows(since_days: int | None = None) -> list[tuple[str, int, int | None, str | None, int]]:
+    """(method, qty, amount, currency, uid) — для подсчёта выручки."""
+    sql = "SELECT method, qty, amount, currency, uid FROM payments"
+    args: tuple = ()
+    if since_days is not None:
+        sql += " WHERE ts>=?"
+        args = (int(time.time()) - since_days * 86400,)
+    with _LOCK:
+        return DB.execute(sql, args).fetchall()
+
+
+def referral_payment_rows(parent: int | None = None) -> list[tuple[int, str, int, int | None]]:
+    """(parent, method, qty, amount) по оплатам приглашённых."""
+    sql = (
+        "SELECT u.parent, p.method, p.qty, p.amount FROM payments p "
+        "JOIN users u ON u.id=p.uid WHERE u.parent IS NOT NULL"
+    )
+    args: tuple = ()
+    if parent is not None:
+        sql += " AND u.parent=?"
+        args = (parent,)
+    with _LOCK:
+        return DB.execute(sql, args).fetchall()
+
+
+# ── экран (одно активное сообщение) ─────────────────
+def get_screen(uid: int) -> tuple[Optional[int], Optional[str]]:
+    with _LOCK:
+        row = DB.execute("SELECT menu_msg, screen_kind FROM users WHERE id=?", (uid,)).fetchone()
+    if not row:
+        return None, None
+    return (row[0] or None), row[1]
+
+
+def set_screen(uid: int, msg_id: Optional[int], kind: Optional[str]):
+    with _LOCK:
+        _ensure(uid)
+        DB.execute("UPDATE users SET menu_msg=?, screen_kind=? WHERE id=?", (msg_id, kind, uid))
+
+
+# ── баланс: атомарное списание ──────────────────────
+def spend_credits(uid: int, qty: int, admins: Iterable[int] = ()) -> bool:
+    """Списывает qty баллов, только если их хватает. True — списано."""
+    if uid in admins or qty <= 0:
+        return True
+    with _LOCK:
+        _ensure(uid)
+        cur = DB.execute(
+            "UPDATE users SET credits = credits - ? WHERE id=? AND credits >= ?",
+            (qty, uid, qty),
+        )
+        return cur.rowcount > 0
+
+
+def refund_credits(uid: int, qty: int, admins: Iterable[int] = ()):
+    if uid in admins:
+        return
+    add_credits(uid, qty)
+
+
+# ── профиль ─────────────────────────────────────────
+def get_profile(uid: int) -> tuple[Optional[str], Optional[str]]:
+    with _LOCK:
+        row = DB.execute("SELECT dob, gender FROM users WHERE id=?", (uid,)).fetchone()
+    return (row[0], row[1]) if row else (None, None)
+
+
+def set_profile(uid: int, dob: Optional[str] = None, gender: Optional[str] = None):
+    with _LOCK:
+        _ensure(uid)
+        if dob is not None:
+            DB.execute("UPDATE users SET dob=? WHERE id=?", (dob, uid))
+        if gender is not None:
+            DB.execute("UPDATE users SET gender=? WHERE id=?", (gender, uid))
+
+
+# ── реферальная награда ─────────────────────────────
+def claim_ref_reward(child: int) -> Optional[int]:
+    """Возвращает id пригласившего, если награду за child ещё не выдавали."""
+    with _LOCK:
+        row = DB.execute(
+            "SELECT parent, ref_rewarded FROM users WHERE id=?", (child,)
+        ).fetchone()
+        if not row or not row[0] or row[1]:
+            return None
+        DB.execute("UPDATE users SET ref_rewarded=1 WHERE id=?", (child,))
+        return row[0]
+
+
+# ── карта дня ───────────────────────────────────────
+def get_daily(uid: int, day: str) -> Optional[tuple[str, bool, str]]:
+    with _LOCK:
+        row = DB.execute(
+            "SELECT card_id, reversed, text FROM daily_cards WHERE uid=? AND day=?",
+            (uid, day),
+        ).fetchone()
+    return (row[0], bool(row[1]), row[2]) if row else None
+
+
+def save_daily(uid: int, day: str, card_id: str, reversed_: bool, text: str):
+    with _LOCK:
+        DB.execute(
+            "INSERT OR REPLACE INTO daily_cards(uid, day, card_id, reversed, text, ts) VALUES(?,?,?,?,?,?)",
+            (uid, day, card_id, 1 if reversed_ else 0, text, int(time.time())),
+        )
+
+
+def daily_stats(days: int = 1) -> tuple[int, int]:
+    border = int(time.time()) - days * 86400
+    with _LOCK:
+        row = DB.execute(
+            "SELECT COUNT(*), COUNT(DISTINCT uid) FROM daily_cards WHERE ts>=?", (border,)
+        ).fetchone()
+    return (row[0], row[1]) if row else (0, 0)
 
 
 def log_ab_event(uid: int, kind: str, variant: str, length: int):
