@@ -19,3 +19,7 @@ __pycache__/
 # Системные файлы Windows / Mac
 Thumbs.db
 .DS_Store
+
+# Бэкапы deploy.sh
+backups/
+.last_deploy_from
