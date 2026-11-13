@@ -1125,7 +1125,7 @@ async def profile(update: Update, ctx):
 async def set_alias_cmd(update: Update, ctx):
     uid = update.effective_user.id
     alias = (ctx.args[0] if ctx.args else "").lower()
-    if not re.fullmatch(r"[a-z0-9_]{3,32}", alias):
+    if not re.fullmatch(r"[a-z0-9_]{3,32}", alias) or alias.startswith("site"):
         await update.message.reply_text("Использование: /alias имя (латиница, цифры, _; 3–32 символа)")
         return
     if add_alias(uid, alias):
